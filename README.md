@@ -14,11 +14,6 @@ graph LR
     B --> C[AI Analyzes Extraction]
     C --> D[AI Updates 'AI Profile']
     D --> A
-    
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#bbf,stroke:#333,stroke-width:2px
-    style C fill:#bbf,stroke:#333,stroke-width:2px
-    style D fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
 The process:
