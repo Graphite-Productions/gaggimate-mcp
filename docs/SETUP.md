@@ -176,10 +176,12 @@ curl http://localhost:3000/health
 
 ### Option B: TrueNAS SCALE "Install via YAML"
 
+TrueNAS can't build images from source — it pulls pre-built images from a registry. Every push to `main` automatically builds and publishes the image to GitHub Container Registry.
+
 1. Go to **Apps** → **Discover** → three-dot menu → **Install via YAML**
-2. Paste the contents of `docker-compose.yml`
-3. Set environment variables in the TrueNAS UI
-4. Map the data volume to a persistent dataset (e.g., `/mnt/tank/apps/gaggimate-bridge/data`)
+2. Paste the contents of `docker-compose.truenas.yml` (not `docker-compose.yml`)
+3. Set the environment variables (GAGGIMATE_HOST, NOTION_API_KEY, database IDs) in the TrueNAS UI
+4. The data volume is created automatically as a Docker named volume
 
 ### Option C: Run directly (development)
 

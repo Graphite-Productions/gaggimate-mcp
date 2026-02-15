@@ -2,6 +2,7 @@ version: "3.8"
 services:
   gaggimate-bridge:
     build: .
+    image: ghcr.io/graphite-productions/gaggimate-bridge:latest
     container_name: gaggimate-bridge
     restart: unless-stopped
     ports:
