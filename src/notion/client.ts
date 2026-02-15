@@ -2,6 +2,8 @@ import { Client } from "@notionhq/client";
 import type { NotionConfig, BrewData, PushStatus, BrewFilters, BeanFilters } from "./types.js";
 import { brewDataToNotionProperties } from "./mappers.js";
 import { renderProfileChartSvg } from "../visualization/profileChart.js";
+import { renderBrewChartSvg } from "../visualization/brewChart.js";
+import type { ShotData } from "../parsers/binaryShot.js";
 
 interface ExistingProfileRecord {
   pageId: string;
@@ -119,6 +121,52 @@ export class NotionClient {
         Profile: { relation: [{ id: profilePageId }] },
       },
     });
+  }
+
+  /** Check whether a brew page already has a Brew Profile image */
+  async brewHasProfileImage(pageId: string): Promise<boolean> {
+    try {
+      const page = await this.client.pages.retrieve({ page_id: pageId }) as any;
+      const prop = page.properties?.["Brew Profile"];
+      return prop?.type === "files" && Array.isArray(prop.files) && prop.files.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Set the Shot JSON rich_text property on a brew page */
+  async setBrewShotJson(pageId: string, jsonString: string): Promise<void> {
+    await this.client.pages.update({
+      page_id: pageId,
+      properties: {
+        "Shot JSON": {
+          rich_text: this.toRichText(jsonString),
+        },
+      },
+    });
+  }
+
+  /** Render + upload a brew chart SVG to the Brew Profile files property */
+  async uploadBrewChart(pageId: string, shotId: string, shot: ShotData): Promise<boolean> {
+    if (this.imageUploadDisabledReason) {
+      return false;
+    }
+
+    try {
+      const svg = renderBrewChartSvg(shot);
+      const filename = `brew-${shotId}.svg`;
+      const fileUpload = await this.createNotionFileUpload(filename, "image/svg+xml");
+      await this.sendFileUpload(fileUpload.uploadUrl, filename, "image/svg+xml", svg);
+      await this.attachBrewProfileImage(pageId, fileUpload.id);
+      return true;
+    } catch (error) {
+      console.warn(`Brew ${shotId}: failed to upload Brew Profile image`, error);
+      if (error instanceof Error && error.message.includes("(401)")) {
+        this.imageUploadDisabledReason = "notion-file-upload-auth-failed";
+        console.warn("Disabling image uploads for this process after 401 from Notion file upload API.");
+      }
+      return false;
+    }
   }
 
   /** List brews where Profile relation is empty, including Activity ID for lookup */
@@ -640,6 +688,25 @@ export class NotionClient {
       const body = await response.text().catch(() => "");
       throw new Error(`Notion file upload send failed (${response.status}): ${body}`);
     }
+  }
+
+  private async attachBrewProfileImage(pageId: string, fileUploadId: string): Promise<void> {
+    await this.client.request({
+      path: `pages/${pageId}`,
+      method: "patch",
+      body: {
+        properties: {
+          "Brew Profile": {
+            files: [
+              {
+                type: "file_upload",
+                file_upload: { id: fileUploadId },
+              },
+            ],
+          },
+        },
+      },
+    });
   }
 
   private async attachProfileImage(pageId: string, fileUploadId: string): Promise<void> {
