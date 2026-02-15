@@ -119,8 +119,8 @@ export class ShotPoller {
           // Check Notion for existing brew (dedup/upsert)
           const existing = await this.notion.findBrewByShotId(shotListItem.id);
 
-          // Transform to AI-friendly format
-          const transformed = transformShotForAI(shotData);
+          // Transform to AI-friendly format (full_curve for Shot JSON)
+          const transformed = transformShotForAI(shotData, true);
 
           // Map to brew data and create in Notion
           const brewData = shotToBrewData(shotData, transformed, {
@@ -142,20 +142,41 @@ export class ShotPoller {
             }
           }
 
+          let pageId: string;
           if (existing) {
             await this.notion.updateBrewFromData(existing, brewData);
+            pageId = existing;
             if (isNewShot) {
               state.recordSync(shotListItem.id);
               syncedIds.push(shotListItem.id);
               console.log(`Shot ${shotListItem.id}: updated existing Notion brew as "${brewData.title}"`);
             }
           } else {
-            await this.notion.createBrew(brewData);
+            pageId = await this.notion.createBrew(brewData);
             if (isNewShot) {
               state.recordSync(shotListItem.id);
               syncedIds.push(shotListItem.id);
             }
             console.log(`Shot ${shotListItem.id}: synced to Notion as "${brewData.title}"`);
+          }
+
+          // Enrich brew with Shot JSON and Brew Profile chart
+          try {
+            await this.notion.setBrewShotJson(pageId, JSON.stringify(transformed));
+          } catch (error) {
+            console.warn(`Shot ${shotListItem.id}: failed to set Shot JSON`, error);
+          }
+
+          try {
+            const hasImage = await this.notion.brewHasProfileImage(pageId);
+            if (!hasImage) {
+              const uploaded = await this.notion.uploadBrewChart(pageId, shotListItem.id, shotData);
+              if (uploaded) {
+                console.log(`Shot ${shotListItem.id}: uploaded Brew Profile chart`);
+              }
+            }
+          } catch (error) {
+            console.warn(`Shot ${shotListItem.id}: failed to upload Brew Profile chart`, error);
           }
         } catch (error) {
           if (this.isTimeoutError(error)) {
