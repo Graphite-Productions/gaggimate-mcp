@@ -357,6 +357,8 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 
 The GaggiMate expects profiles in this exact structure:
 
+For full MCP-side validation rules (required fields, enums, ranges, and queued-only push behavior), see `mcp-json-validation.md`.
+
 ```json
 {
   "label": "AI Profile",
