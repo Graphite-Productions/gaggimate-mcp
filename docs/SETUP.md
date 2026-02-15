@@ -145,6 +145,7 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
     - `Source`
     - `Active on Machine`
     - `Profile JSON`
+    - `Profile Image` (auto-generated pressure/flow chart when empty)
     - `Push Status` (`Pushed`)
     - `Last Pushed` (import timestamp)
   - Marks profiles not currently on machine as `Active on Machine = false` (keeps history in Notion)
@@ -160,7 +161,7 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
   - `Best For`
   - `Source`
   - `Active on Machine`
-  - `Profile Image`
+  - `Profile Image` (optional manual override)
   - `Brews` relation
   - `Notes`
 

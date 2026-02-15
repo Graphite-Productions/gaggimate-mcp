@@ -46,9 +46,9 @@ export class ProfileImportPoller {
       }
 
       const result = await this.notion.importProfilesFromGaggiMate(profiles);
-      if (result.created > 0 || result.updatedPresent > 0 || result.markedMissing > 0) {
+      if (result.created > 0 || result.updatedPresent > 0 || result.markedMissing > 0 || result.imagesUploaded > 0) {
         console.log(
-          `Profile import: created ${result.created}, updated ${result.updatedPresent}, marked missing ${result.markedMissing}, skipped ${result.skipped}`,
+          `Profile import: created ${result.created}, updated ${result.updatedPresent}, marked missing ${result.markedMissing}, images ${result.imagesUploaded}, skipped ${result.skipped}`,
         );
       }
 

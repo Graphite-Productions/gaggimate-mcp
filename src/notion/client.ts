@@ -1,6 +1,7 @@
 import { Client } from "@notionhq/client";
 import type { NotionConfig, BrewData, PushStatus, BrewFilters, BeanFilters } from "./types.js";
 import { brewDataToNotionProperties } from "./mappers.js";
+import { renderProfileChartSvg } from "../visualization/profileChart.js";
 
 export class NotionClient {
   private client: Client;
@@ -205,6 +206,7 @@ export class NotionClient {
     created: number;
     updatedPresent: number;
     markedMissing: number;
+    imagesUploaded: number;
     skipped: number;
   }> {
     const existingProfiles = await this.listExistingProfiles();
@@ -212,6 +214,7 @@ export class NotionClient {
     let created = 0;
     let updatedPresent = 0;
     let markedMissing = 0;
+    let imagesUploaded = 0;
     let skipped = 0;
     const now = new Date().toISOString();
 
@@ -243,13 +246,20 @@ export class NotionClient {
         } else {
           skipped += 1;
         }
+
+        if (!existing.hasProfileImage) {
+          const uploaded = await this.uploadProfileImage(existing.pageId, profileName, profile);
+          if (uploaded) {
+            imagesUploaded += 1;
+          }
+        }
         continue;
       }
 
       const profileJson = JSON.stringify(profile);
       const description = typeof profile?.description === "string" ? profile.description : "";
 
-      await this.client.pages.create({
+      const createdPage = await this.client.pages.create({
         parent: { database_id: this.config.profilesDbId },
         properties: {
           "Profile Name": {
@@ -279,6 +289,10 @@ export class NotionClient {
         },
       });
 
+      const uploaded = await this.uploadProfileImage(createdPage.id, profileName, profile);
+      if (uploaded) {
+        imagesUploaded += 1;
+      }
       created += 1;
     }
 
@@ -296,7 +310,7 @@ export class NotionClient {
       }
     }
 
-    return { created, updatedPresent, markedMissing, skipped };
+    return { created, updatedPresent, markedMissing, imagesUploaded, skipped };
   }
 
   // ─── Beans ────────────────────────────────────────────────
@@ -390,8 +404,8 @@ export class NotionClient {
     return name.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
-  private async listExistingProfiles(): Promise<Map<string, { pageId: string; pushStatus: string | null; activeOnMachine: boolean | null }>> {
-    const profiles = new Map<string, { pageId: string; pushStatus: string | null; activeOnMachine: boolean | null }>();
+  private async listExistingProfiles(): Promise<Map<string, { pageId: string; pushStatus: string | null; activeOnMachine: boolean | null; hasProfileImage: boolean }>> {
+    const profiles = new Map<string, { pageId: string; pushStatus: string | null; activeOnMachine: boolean | null; hasProfileImage: boolean }>();
     let cursor: string | undefined;
 
     do {
@@ -406,10 +420,12 @@ export class NotionClient {
         if (!normalized) continue;
         const pushStatusProp = page.properties?.["Push Status"];
         const activeOnMachineProp = page.properties?.["Active on Machine"];
+        const profileImageProp = page.properties?.["Profile Image"];
         profiles.set(normalized, {
           pageId: page.id,
           pushStatus: pushStatusProp?.type === "select" ? pushStatusProp.select?.name || null : null,
           activeOnMachine: activeOnMachineProp?.type === "checkbox" ? Boolean(activeOnMachineProp.checkbox) : null,
+          hasProfileImage: profileImageProp?.type === "files" ? Array.isArray(profileImageProp.files) && profileImageProp.files.length > 0 : false,
         });
       }
 
@@ -467,5 +483,87 @@ export class NotionClient {
     if (label === "ai profile") return "AI-Generated";
     if (profile?.utility === true) return "Stock";
     return "Custom";
+  }
+
+  private async uploadProfileImage(pageId: string, profileName: string, profile: any): Promise<boolean> {
+    try {
+      const svg = renderProfileChartSvg(profile);
+      const fileUpload = await this.createNotionFileUpload(`${this.sanitizeFileName(profileName)}.svg`, "image/svg+xml");
+      await this.sendFileUpload(fileUpload.uploadUrl, `${this.sanitizeFileName(profileName)}.svg`, "image/svg+xml", svg);
+      await this.completeNotionFileUpload(fileUpload.id);
+      await this.attachProfileImage(pageId, fileUpload.id);
+      return true;
+    } catch (error) {
+      console.warn(`Profile "${profileName}": failed to upload Profile Image`, error);
+      return false;
+    }
+  }
+
+  private async createNotionFileUpload(filename: string, contentType: string): Promise<{ id: string; uploadUrl: string }> {
+    const response = await this.client.request<any>({
+      path: "file_uploads",
+      method: "post",
+      body: {
+        mode: "single_part",
+        filename,
+        content_type: contentType,
+      },
+    });
+
+    const id = typeof response?.id === "string" ? response.id : "";
+    const uploadUrl = typeof response?.upload_url === "string" ? response.upload_url : "";
+
+    if (!id || !uploadUrl) {
+      throw new Error("Notion file upload init failed: missing id or upload_url");
+    }
+
+    return { id, uploadUrl };
+  }
+
+  private async sendFileUpload(uploadUrl: string, filename: string, contentType: string, content: string): Promise<void> {
+    const formData = new FormData();
+    formData.append("file", new Blob([content], { type: contentType }), filename);
+
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      body: formData,
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`Notion file upload send failed (${response.status}): ${body}`);
+    }
+  }
+
+  private async completeNotionFileUpload(fileUploadId: string): Promise<void> {
+    await this.client.request({
+      path: `file_uploads/${fileUploadId}/complete`,
+      method: "post",
+    });
+  }
+
+  private async attachProfileImage(pageId: string, fileUploadId: string): Promise<void> {
+    await this.client.request({
+      path: `pages/${pageId}`,
+      method: "patch",
+      body: {
+        properties: {
+          "Profile Image": {
+            files: [
+              {
+                type: "file_upload",
+                file_upload: { id: fileUploadId },
+              },
+            ],
+          },
+        },
+      },
+    });
+  }
+
+  private sanitizeFileName(value: string): string {
+    const normalized = value.trim().replace(/\s+/g, "-").replace(/[^a-zA-Z0-9\-_]/g, "").toLowerCase();
+    return normalized || "profile";
   }
 }
