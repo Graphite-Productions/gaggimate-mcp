@@ -54,6 +54,8 @@ Copy `.env.example` to `.env` and fill in your values. Never commit `.env` — i
 | `NOTION_BREWS_DB_ID` | Notion Brews database ID | required |
 | `NOTION_PROFILES_DB_ID` | Notion Profiles database ID | required |
 | `SYNC_INTERVAL_MS` | Shot polling interval (ms) | `30000` |
+| `RECENT_SHOT_LOOKBACK_COUNT` | Number of recent shots to re-hydrate/update each poll | `5` |
+| `BREW_TITLE_TIMEZONE` | Timezone used for brew title AM/PM labels | `UTC` |
 | `POLLING_FALLBACK` | Poll Notion for queued profiles | `true` |
 | `PROFILE_POLL_INTERVAL_MS` | Queued profile poll interval (ms) | `3000` |
 | `PROFILE_IMPORT_ENABLED` | Import profiles from GaggiMate | `true` |

@@ -2,6 +2,10 @@ import type { ShotData } from "../parsers/binaryShot.js";
 import type { TransformedShot } from "../transformers/shotTransformer.js";
 import type { BrewData } from "./types.js";
 
+interface BrewTitleFormatOptions {
+  timeZone?: string;
+}
+
 /**
  * Format a shot number with zero-padded prefix: "#047"
  */
@@ -12,12 +16,35 @@ function formatShotNumber(shotId: string): string {
 /**
  * Format a date for brew title: "Feb 14 AM"
  */
-function formatBrewDate(isoDate: string): string {
+function formatBrewDate(isoDate: string, options?: BrewTitleFormatOptions): string {
   const date = new Date(isoDate);
-  const month = date.toLocaleDateString("en-US", { month: "short" });
-  const day = date.getDate();
-  const hour = date.getHours();
-  const period = hour < 12 ? "AM" : "PM";
+  const formatterOptions: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    hour12: true,
+  };
+  if (options?.timeZone) {
+    formatterOptions.timeZone = options.timeZone;
+  }
+
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", formatterOptions).formatToParts(date);
+  } catch {
+    // Fallback for invalid timezone config
+    parts = new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      hour12: true,
+    }).formatToParts(date);
+  }
+
+  const month = parts.find((p) => p.type === "month")?.value || date.toLocaleDateString("en-US", { month: "short" });
+  const day = parts.find((p) => p.type === "day")?.value || String(date.getDate());
+  const dayPeriod = (parts.find((p) => p.type === "dayPeriod")?.value || (date.getHours() < 12 ? "AM" : "PM")).toUpperCase();
+  const period = dayPeriod.startsWith("A") ? "AM" : "PM";
   return `${month} ${day} ${period}`;
 }
 
@@ -27,10 +54,11 @@ function formatBrewDate(isoDate: string): string {
 export function shotToBrewData(
   shot: ShotData,
   transformed: TransformedShot,
+  options?: BrewTitleFormatOptions,
 ): BrewData {
   const isoDate = transformed.metadata.timestamp;
   const shotNumber = formatShotNumber(shot.id);
-  const dateLabel = formatBrewDate(isoDate);
+  const dateLabel = formatBrewDate(isoDate, options);
 
   return {
     activityId: shot.id,

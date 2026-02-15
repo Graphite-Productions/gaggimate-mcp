@@ -43,21 +43,19 @@ export class NotionClient {
 
   /** Create a brew entry in Notion from shot data */
   async createBrew(brew: BrewData): Promise<string> {
-    const properties = brewDataToNotionProperties(brew);
-
-    // If a profile with matching title exists, link it via the Profile relation.
-    const profilePageId = await this.findProfilePageByName(brew.profileName);
-    if (profilePageId) {
-      properties.Profile = { relation: [{ id: profilePageId }] };
-    } else if (brew.profileName) {
-      console.warn(`No Profiles DB match found for profile name "${brew.profileName}"`);
-    }
+    const properties = await this.buildBrewProperties(brew);
 
     const response = await this.client.pages.create({
       parent: { database_id: this.config.brewsDbId },
       properties,
     });
     return response.id;
+  }
+
+  /** Update an existing brew page from shot-derived data */
+  async updateBrewFromData(pageId: string, brew: BrewData): Promise<void> {
+    const properties = await this.buildBrewProperties(brew);
+    await this.updateBrew(pageId, properties);
   }
 
   /** Find an existing brew by GaggiMate shot ID (dedup check) */
@@ -196,8 +194,17 @@ export class NotionClient {
 
   /** Read the Profile JSON property from a profile page */
   async getProfileJSON(pageId: string): Promise<string | null> {
+    const { profileJson } = await this.getProfilePushData(pageId);
+    return profileJson;
+  }
+
+  /** Read push-relevant data from a profile page */
+  async getProfilePushData(pageId: string): Promise<{ profileJson: string | null; pushStatus: string | null }> {
     const page = await this.client.pages.retrieve({ page_id: pageId }) as any;
-    return this.extractRichText(page, "Profile JSON") || null;
+    const profileJson = this.extractRichText(page, "Profile JSON") || null;
+    const pushStatusProp = page.properties?.["Push Status"];
+    const pushStatus = pushStatusProp?.type === "select" ? pushStatusProp.select?.name || null : null;
+    return { profileJson, pushStatus };
   }
 
   /** Check whether a profile with this name already exists in Notion */
@@ -442,6 +449,20 @@ export class NotionClient {
     }
 
     return null;
+  }
+
+  private async buildBrewProperties(brew: BrewData): Promise<Record<string, any>> {
+    const properties = brewDataToNotionProperties(brew);
+
+    // If a profile with matching title exists, link it via the Profile relation.
+    const profilePageId = await this.findProfilePageByName(brew.profileName);
+    if (profilePageId) {
+      properties.Profile = { relation: [{ id: profilePageId }] };
+    } else if (brew.profileName) {
+      console.warn(`No Profiles DB match found for profile name "${brew.profileName}"`);
+    }
+
+    return properties;
   }
 
   private normalizeProfileName(name: string): string {

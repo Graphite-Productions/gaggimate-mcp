@@ -27,13 +27,19 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
       }
 
       const payload = req.body;
-      console.log(`Webhook received: type=${payload?.type}, entity=${payload?.entity?.type}`);
+      const eventType = payload?.type;
 
       // Only process page property changes in the Profiles DB
-      if (payload?.type !== "page.property_changed" && payload?.type !== "page.changed") {
+      if (
+        eventType !== "page.property_changed" &&
+        eventType !== "page.changed" &&
+        eventType !== "page.properties_updated"
+      ) {
         res.json({ ok: true, action: "ignored" });
         return;
       }
+
+      console.log(`Webhook received: type=${eventType}, entity=${payload?.entity?.type}`);
 
       const pageId = payload?.entity?.id || payload?.data?.page_id;
       if (!pageId) {
@@ -41,8 +47,13 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
-      // Fetch the page to check Push Status
-      const profileJson = await notion.getProfileJSON(pageId);
+      // Fetch the page and only act when current status is Queued.
+      const { profileJson, pushStatus } = await notion.getProfilePushData(pageId);
+      if (pushStatus !== "Queued") {
+        res.json({ ok: true, action: "ignored", reason: "push status not queued" });
+        return;
+      }
+
       if (!profileJson) {
         console.log(`Webhook for page ${pageId}: no Profile JSON found, ignoring`);
         res.json({ ok: true, action: "ignored", reason: "no profile json" });

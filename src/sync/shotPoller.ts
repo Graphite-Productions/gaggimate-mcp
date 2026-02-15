@@ -7,6 +7,8 @@ import { transformShotForAI } from "../transformers/shotTransformer.js";
 interface ShotPollerOptions {
   intervalMs: number;
   dataDir: string;
+  recentShotLookbackCount: number;
+  brewTitleTimeZone: string;
 }
 
 export class ShotPoller {
@@ -59,25 +61,35 @@ export class ShotPoller {
         .filter((s) => parseInt(s.id, 10) > lastId)
         .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10)); // Process oldest first
 
-      if (newShots.length === 0) {
+      // Revisit a small lookback window to hydrate/fix already-synced brews
+      // that were first seen while the shot file was still settling.
+      const recentLowerBound = Math.max(1, lastId - this.options.recentShotLookbackCount + 1);
+      const recentShots = shots
+        .filter((s) => {
+          const id = parseInt(s.id, 10);
+          return id >= recentLowerBound && id <= lastId;
+        })
+        .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+
+      const candidateById = new Map<string, (typeof shots)[number]>();
+      for (const shot of [...recentShots, ...newShots]) {
+        candidateById.set(shot.id, shot);
+      }
+      const candidateShots = Array.from(candidateById.values())
+        .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+
+      if (candidateShots.length === 0) {
         this.running = false;
         return;
       }
 
-      console.log(`Found ${newShots.length} new shot(s) to sync`);
+      if (newShots.length > 0) {
+        console.log(`Found ${newShots.length} new shot(s) to sync`);
+      }
       const syncedIds: string[] = [];
 
-      for (const shotListItem of newShots) {
+      for (const shotListItem of candidateShots) {
         try {
-          // Check Notion for existing brew (dedup)
-          const existing = await this.notion.findBrewByShotId(shotListItem.id);
-          if (existing) {
-            console.log(`Shot ${shotListItem.id}: already in Notion, skipping`);
-            state.recordSync(shotListItem.id);
-            syncedIds.push(shotListItem.id);
-            continue;
-          }
-
           // Fetch full shot data
           const shotData = await this.gaggimate.fetchShot(shotListItem.id);
           if (!shotData) {
@@ -85,11 +97,26 @@ export class ShotPoller {
             continue;
           }
 
+          const shotNumericId = parseInt(shotListItem.id, 10);
+          const isNewShot = shotNumericId > lastId;
+
+          // If shot file is still being written, retry on next interval.
+          // Do not advance sync state past this shot ID yet.
+          if (isNewShot && shotData.incomplete) {
+            console.log(`Shot ${shotListItem.id}: file incomplete, waiting for next poll before syncing`);
+            break;
+          }
+
+          // Check Notion for existing brew (dedup/upsert)
+          const existing = await this.notion.findBrewByShotId(shotListItem.id);
+
           // Transform to AI-friendly format
           const transformed = transformShotForAI(shotData);
 
           // Map to brew data and create in Notion
-          const brewData = shotToBrewData(shotData, transformed);
+          const brewData = shotToBrewData(shotData, transformed, {
+            timeZone: this.options.brewTitleTimeZone,
+          });
 
           // If the shot references a profile that doesn't exist in Notion yet,
           // import profiles from GaggiMate first so the brew relation can link.
@@ -106,11 +133,21 @@ export class ShotPoller {
             }
           }
 
-          await this.notion.createBrew(brewData);
-
-          state.recordSync(shotListItem.id);
-          syncedIds.push(shotListItem.id);
-          console.log(`Shot ${shotListItem.id}: synced to Notion as "${brewData.title}"`);
+          if (existing) {
+            await this.notion.updateBrewFromData(existing, brewData);
+            if (isNewShot) {
+              state.recordSync(shotListItem.id);
+              syncedIds.push(shotListItem.id);
+              console.log(`Shot ${shotListItem.id}: updated existing Notion brew as "${brewData.title}"`);
+            }
+          } else {
+            await this.notion.createBrew(brewData);
+            if (isNewShot) {
+              state.recordSync(shotListItem.id);
+              syncedIds.push(shotListItem.id);
+            }
+            console.log(`Shot ${shotListItem.id}: synced to Notion as "${brewData.title}"`);
+          }
         } catch (error) {
           // Per-shot failure isolation — log and continue
           console.error(`Shot ${shotListItem.id}: sync failed:`, error);

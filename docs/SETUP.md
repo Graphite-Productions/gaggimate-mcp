@@ -226,10 +226,12 @@ WEBHOOK_SECRET=
 POLLING_FALLBACK=true
 PROFILE_IMPORT_ENABLED=true
 PROFILE_IMPORT_INTERVAL_MS=60000
+RECENT_SHOT_LOOKBACK_COUNT=5
 
 # Defaults are fine for most setups
 SYNC_INTERVAL_MS=30000
 HTTP_PORT=3000
+BREW_TITLE_TIMEZONE=America/Los_Angeles
 ```
 
 ---
@@ -351,6 +353,7 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 | `connected: false` | Bad Notion token | Re-copy from my-integrations, ensure no trailing whitespace |
 | Shots not syncing | Database not shared with integration | Open each DB → Share → invite integration |
 | Profile push "Failed" | Invalid Profile JSON | Check JSON format (see template above), temperature must be 60-100 |
+| Brew title AM/PM appears wrong | Container timezone differs from your local timezone | Set `BREW_TITLE_TIMEZONE` (e.g. `America/Los_Angeles`) and restart |
 | Docker can't resolve hostname | mDNS doesn't work in Docker | Use IP address, not `gaggimate.local` |
 
 ---

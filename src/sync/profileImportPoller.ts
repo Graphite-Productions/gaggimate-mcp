@@ -59,7 +59,11 @@ export class ProfileImportPoller {
         );
       }
     } catch (error) {
-      console.error("Profile import poller error:", error);
+      if (error instanceof Error && error.message.toLowerCase().includes("timeout")) {
+        console.warn("Profile import poller: GaggiMate unreachable, will retry next interval");
+      } else {
+        console.error("Profile import poller error:", error);
+      }
     } finally {
       this.running = false;
     }

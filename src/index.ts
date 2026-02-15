@@ -13,6 +13,7 @@ async function main() {
   console.log(`  Sync interval: ${config.sync.intervalMs}ms`);
   console.log(`  Polling fallback: ${config.sync.pollingFallback}`);
   console.log(`  Profile import: ${config.sync.profileImportEnabled}`);
+  console.log(`  Brew title time zone: ${config.time.brewTitleTimeZone}`);
 
   // Initialize clients
   const gaggimate = new GaggiMateClient(config.gaggimate);
@@ -28,6 +29,8 @@ async function main() {
   const shotPoller = new ShotPoller(gaggimate, notion, {
     intervalMs: config.sync.intervalMs,
     dataDir: config.data.dir,
+    recentShotLookbackCount: config.sync.recentShotLookbackCount,
+    brewTitleTimeZone: config.time.brewTitleTimeZone,
   });
   shotPoller.start();
 

@@ -21,6 +21,10 @@ export const config = {
     profilePollIntervalMs: Number(process.env.PROFILE_POLL_INTERVAL_MS) || 3000,
     profileImportEnabled: process.env.PROFILE_IMPORT_ENABLED !== "false",
     profileImportIntervalMs: Number(process.env.PROFILE_IMPORT_INTERVAL_MS) || 60000,
+    recentShotLookbackCount: Number(process.env.RECENT_SHOT_LOOKBACK_COUNT) || 5,
+  },
+  time: {
+    brewTitleTimeZone: process.env.BREW_TITLE_TIMEZONE || process.env.TZ || "UTC",
   },
   http: {
     port: Number(process.env.HTTP_PORT) || 3000,
