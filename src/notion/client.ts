@@ -495,7 +495,6 @@ export class NotionClient {
       const svg = renderProfileChartSvg(profile);
       const fileUpload = await this.createNotionFileUpload(`${this.sanitizeFileName(profileName)}.svg`, "image/svg+xml");
       await this.sendFileUpload(fileUpload.uploadUrl, `${this.sanitizeFileName(profileName)}.svg`, "image/svg+xml", svg);
-      await this.completeNotionFileUpload(fileUpload.id);
       await this.attachProfileImage(pageId, fileUpload.id);
       return true;
     } catch (error) {
@@ -547,13 +546,6 @@ export class NotionClient {
       const body = await response.text().catch(() => "");
       throw new Error(`Notion file upload send failed (${response.status}): ${body}`);
     }
-  }
-
-  private async completeNotionFileUpload(fileUploadId: string): Promise<void> {
-    await this.client.request({
-      path: `file_uploads/${fileUploadId}/complete`,
-      method: "post",
-    });
   }
 
   private async attachProfileImage(pageId: string, fileUploadId: string): Promise<void> {
