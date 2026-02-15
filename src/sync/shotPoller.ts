@@ -40,6 +40,15 @@ export class ShotPoller {
     console.log("Shot poller stopped");
   }
 
+  private isTimeoutError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const name = error.name.toLowerCase();
+      const message = error.message.toLowerCase();
+      return name.includes("timeout") || name.includes("abort") || message.includes("timeout") || message.includes("aborted");
+    }
+    return false;
+  }
+
   private async poll(): Promise<void> {
     // Prevent overlapping polls
     if (this.running) return;
@@ -149,6 +158,10 @@ export class ShotPoller {
             console.log(`Shot ${shotListItem.id}: synced to Notion as "${brewData.title}"`);
           }
         } catch (error) {
+          if (this.isTimeoutError(error)) {
+            console.warn(`Shot ${shotListItem.id}: timed out fetching data, will retry next poll`);
+            break;
+          }
           // Per-shot failure isolation — log and continue
           console.error(`Shot ${shotListItem.id}: sync failed:`, error);
         }

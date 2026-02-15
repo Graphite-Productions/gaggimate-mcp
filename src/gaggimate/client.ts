@@ -10,6 +10,15 @@ function generateRequestId(): string {
   return `bridge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+function isTimeoutError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const name = error.name.toLowerCase();
+    const message = error.message.toLowerCase();
+    return name.includes("timeout") || name.includes("abort") || message.includes("timeout") || message.includes("aborted");
+  }
+  return false;
+}
+
 export class GaggiMateClient {
   private config: GaggiMateConfig;
 
@@ -396,7 +405,7 @@ export class GaggiMateClient {
 
       return shotList;
     } catch (error: any) {
-      if (error.name === "AbortError") {
+      if (isTimeoutError(error)) {
         throw new Error(`Request timeout: No response from GaggiMate at ${this.config.host}`);
       }
       throw error;
@@ -425,7 +434,7 @@ export class GaggiMateClient {
       const buffer = Buffer.from(arrayBuffer);
       return parseBinaryShot(buffer, shotId);
     } catch (error: any) {
-      if (error.name === "AbortError") {
+      if (isTimeoutError(error)) {
         throw new Error(`Request timeout: No response from GaggiMate at ${this.config.host}`);
       }
       throw error;

@@ -210,6 +210,7 @@ Edit `.env` with your values:
 # GaggiMate IP from Step 1
 GAGGIMATE_HOST=192.168.1.100
 GAGGIMATE_PROTOCOL=ws
+REQUEST_TIMEOUT=5000
 
 # Notion token from Step 3
 NOTION_API_KEY=ntn_XXXXXXXXXXXX
@@ -354,6 +355,7 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 | Shots not syncing | Database not shared with integration | Open each DB → Share → invite integration |
 | Profile push "Failed" | Invalid Profile JSON | Check JSON format (see template above), temperature must be 60-100 |
 | Brew title AM/PM appears wrong | Container timezone differs from your local timezone | Set `BREW_TITLE_TIMEZONE` (e.g. `America/Los_Angeles`) and restart |
+| Frequent timeout warnings | GaggiMate slow/unreachable or timeout too low | Verify connectivity and increase `REQUEST_TIMEOUT` (e.g. `10000`) |
 | Docker can't resolve hostname | mDNS doesn't work in Docker | Use IP address, not `gaggimate.local` |
 
 ---
