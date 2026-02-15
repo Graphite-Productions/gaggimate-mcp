@@ -44,23 +44,33 @@ docker compose up --build
 
 ## Environment Variables
 
-See `.env.example` for all options. Key ones:
+Copy `.env.example` to `.env` and fill in your values. Never commit `.env` — it contains secrets.
 
 | Variable | Description | Default |
 |---|---|---|
 | `GAGGIMATE_HOST` | GaggiMate IP address | `localhost` |
-| `NOTION_API_KEY` | Notion integration token | required |
+| `NOTION_API_KEY` | Notion integration token (starts with `ntn_`) | required |
+| `NOTION_BEANS_DB_ID` | Notion Beans database ID | required |
 | `NOTION_BREWS_DB_ID` | Notion Brews database ID | required |
 | `NOTION_PROFILES_DB_ID` | Notion Profiles database ID | required |
-| `SYNC_INTERVAL_MS` | Shot polling interval | `30000` |
+| `SYNC_INTERVAL_MS` | Shot polling interval (ms) | `30000` |
 | `POLLING_FALLBACK` | Poll Notion for queued profiles | `true` |
+| `PROFILE_POLL_INTERVAL_MS` | Queued profile poll interval (ms) | `3000` |
 | `PROFILE_IMPORT_ENABLED` | Import profiles from GaggiMate | `true` |
-| `PROFILE_IMPORT_INTERVAL_MS` | Profile import polling interval | `60000` |
+| `PROFILE_IMPORT_INTERVAL_MS` | Profile import polling interval (ms) | `60000` |
+| `WEBHOOK_SECRET` | Notion webhook signature verification | optional |
+
+## Security
+
+- **Never commit API keys.** Use `.env` (gitignored) or environment variables. See [Notion's API key best practices](https://developers.notion.com/guides/resources/best-practices-for-handling-api-keys).
+- If a key is compromised: revoke it in [Notion integrations](https://www.notion.so/my-integrations), generate a new one, and rotate in all environments.
 
 ## API
 
 - `GET /health` — Service status, GaggiMate/Notion connectivity, last sync info
 - `POST /webhook/notion` — Receives Notion webhooks for profile push
+
+Profile JSON validation rules: [`docs/mcp-json-validation.md`](docs/mcp-json-validation.md)
 
 ## Notion Databases
 

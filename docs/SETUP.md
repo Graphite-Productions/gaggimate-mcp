@@ -194,7 +194,7 @@ curl -H "Authorization: Bearer ntn_YOUR_TOKEN" \
      https://api.notion.com/v1/users/me
 ```
 
-Should return your user info without errors.
+Should return your user info without errors. Never share your token — use environment variables only. See [Notion API key best practices](https://developers.notion.com/guides/resources/best-practices-for-handling-api-keys).
 
 ---
 
@@ -359,7 +359,7 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 
 The GaggiMate expects profiles in this exact structure:
 
-For full MCP-side validation rules (required fields, enums, ranges, and queued-only push behavior), see `mcp-json-validation.md`.
+For full validation rules (required fields, enums, ranges, and queued-only push behavior), see [`docs/mcp-json-validation.md`](mcp-json-validation.md).
 
 ```json
 {

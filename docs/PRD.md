@@ -655,7 +655,7 @@ sudo docker exec -it <tailscale-container-name> tailscale funnel 3000
 6. Store it securely — this goes into the MCP server's environment variables
 7. **Important:** After creating the Beans, Brews, and Profiles databases, you'll need to share each database with this integration (click Share → invite the integration by name)
 
-> ✅ **Verification:** You can test the token with a simple curl: `curl -H "Authorization: Bearer ntn_YOUR_TOKEN" -H "Notion-Version: 2022-06-28" https://api.notion.com/v1/users/me` — should return your user info.
+> ✅ **Verification:** You can test the token with a simple curl: `curl -H "Authorization: Bearer ntn_YOUR_TOKEN" -H "Notion-Version: 2022-06-28" https://api.notion.com/v1/users/me` — should return your user info. Never commit tokens; use environment variables. See [Notion API key best practices](https://developers.notion.com/guides/resources/best-practices-for-handling-api-keys).
 > 
 
 ---
