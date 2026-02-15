@@ -37,7 +37,28 @@ function easing(type: string, x: number): number {
   const t = clamp(x, 0, 1);
   if (type === "ease-in") return t * t;
   if (type === "ease-out") return 1 - (1 - t) * (1 - t);
+  if (type === "ease-in-out") {
+    if (t < 0.5) return 2 * t * t;
+    return 1 - Math.pow(-2 * t + 2, 2) / 2;
+  }
   return t;
+}
+
+function transitionDuration(phase?: ChartProfilePhase): number {
+  return Number(phase?.transition?.duration) || 0;
+}
+
+function transitionType(phase?: ChartProfilePhase): string {
+  const raw = typeof phase?.transition?.type === "string" ? phase.transition.type.toLowerCase() : "";
+  const normalized = raw.replace(/[_\s]+/g, "-");
+  if (normalized === "easein") return "ease-in";
+  if (normalized === "easeout") return "ease-out";
+  if (normalized === "easeinout") return "ease-in-out";
+  return normalized || "instant";
+}
+
+function hasCurvedTransition(phase?: ChartProfilePhase): boolean {
+  return transitionDuration(phase) > 0 && transitionType(phase) !== "instant";
 }
 
 function buildSeries(profile: ChartProfile): {
@@ -86,18 +107,26 @@ function buildSeries(profile: ChartProfile): {
         : clamp(phase.pump.flow, 0, 12);
     }
 
-    const transitionType = (phase.transition?.type || "instant").toLowerCase();
-    const transitionDuration = clamp(Number(phase.transition?.duration) || 0, 0, duration);
+    // GaggiMate profiles in the wild use both conventions:
+    // - transition on the incoming phase
+    // - transition on the outgoing previous phase
+    // Prefer current phase transition, then fall back to previous.
+    const previousPhase = i > 0 ? phases[i - 1] : undefined;
+    const transitionSource = hasCurvedTransition(phase) || transitionDuration(phase) > 0
+      ? phase
+      : previousPhase;
+    const startTransitionType = transitionType(transitionSource);
+    const startTransitionDuration = clamp(transitionDuration(transitionSource), 0, duration);
 
     for (let dt = 0; dt <= duration + 1e-6; dt += sampleStep) {
       const absTime = currentTime + Math.min(dt, duration);
 
       let progress = 1;
-      if (transitionType !== "instant" && transitionDuration > 0 && dt < transitionDuration) {
-        progress = easing(transitionType, dt / transitionDuration);
+      if (startTransitionType !== "instant" && startTransitionDuration > 0 && dt < startTransitionDuration) {
+        progress = easing(startTransitionType, dt / startTransitionDuration);
       }
 
-      if (transitionType === "instant") {
+      if (startTransitionType === "instant") {
         progress = dt <= 0 ? 0 : 1;
       }
 

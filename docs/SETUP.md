@@ -405,4 +405,5 @@ For full validation rules (required fields, enums, ranges, and queued-only push 
 - `phases`: at least one phase required
 - Each phase needs: `name`, `phase` ("preinfusion" or "brew"), `duration` (seconds)
 - `pump.target`: "pressure" (bar) or "flow" (ml/s)
+- `transition.type`: "instant", "linear", "ease-in", "ease-out", or "ease-in-out"
 - `targets`: optional stop conditions (phase ends when any condition is met)

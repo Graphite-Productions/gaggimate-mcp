@@ -3,6 +3,22 @@ import type { NotionConfig, BrewData, PushStatus, BrewFilters, BeanFilters } fro
 import { brewDataToNotionProperties } from "./mappers.js";
 import { renderProfileChartSvg } from "../visualization/profileChart.js";
 
+interface ExistingProfileRecord {
+  pageId: string;
+  normalizedName: string;
+  profileId: string | null;
+  profileJson: string;
+  pushStatus: string | null;
+  activeOnMachine: boolean | null;
+  hasProfileImage: boolean;
+}
+
+interface ExistingProfilesIndex {
+  byName: Map<string, ExistingProfileRecord>;
+  byId: Map<string, ExistingProfileRecord>;
+  all: ExistingProfileRecord[];
+}
+
 export class NotionClient {
   private client: Client;
   private config: NotionConfig;
@@ -211,7 +227,7 @@ export class NotionClient {
     skipped: number;
   }> {
     const existingProfiles = await this.listExistingProfiles();
-    const machineNames = new Set<string>();
+    const matchedPageIds = new Set<string>();
     let created = 0;
     let updatedPresent = 0;
     let markedMissing = 0;
@@ -222,33 +238,62 @@ export class NotionClient {
     for (const profile of profiles) {
       const profileName = typeof profile?.label === "string" ? profile.label.trim() : "";
       const normalizedName = this.normalizeProfileName(profileName);
+      const profileId = this.extractProfileId(profile);
+      const profileJson = JSON.stringify(profile);
+      const description = typeof profile?.description === "string" ? profile.description : "";
+      const mappedType = this.mapProfileType(profile?.type);
+      const mappedSource = this.mapProfileSource(profile);
 
       if (!normalizedName) {
         skipped += 1;
         continue;
       }
 
-      machineNames.add(normalizedName);
-      const existing = existingProfiles.get(normalizedName);
+      const existing =
+        (profileId ? existingProfiles.byId.get(profileId) : undefined) ||
+        existingProfiles.byName.get(normalizedName);
 
       if (existing) {
-        // Ensure machine-present profiles are clearly marked as present/pushed.
-        const needsUpdate = existing.pushStatus !== "Pushed" || existing.activeOnMachine !== true;
-        if (needsUpdate) {
+        matchedPageIds.add(existing.pageId);
+
+        const machineChanged =
+          existing.profileJson !== profileJson || existing.normalizedName !== normalizedName;
+        const needsPresenceUpdate = existing.pushStatus !== "Pushed" || existing.activeOnMachine !== true;
+        if (needsPresenceUpdate || machineChanged) {
+          const properties: Record<string, any> = {
+            "Push Status": { select: { name: "Pushed" } },
+            "Last Pushed": { date: { start: now } },
+            "Active on Machine": { checkbox: true },
+          };
+
+          if (machineChanged) {
+            properties["Profile Name"] = {
+              title: [{ text: { content: profileName } }],
+            };
+            properties.Description = {
+              rich_text: this.toRichText(description),
+            };
+            properties["Profile Type"] = {
+              select: { name: mappedType },
+            };
+            properties.Source = {
+              select: { name: mappedSource },
+            };
+            properties["Profile JSON"] = {
+              rich_text: this.toRichText(profileJson),
+            };
+          }
+
           await this.client.pages.update({
             page_id: existing.pageId,
-            properties: {
-              "Push Status": { select: { name: "Pushed" } },
-              "Last Pushed": { date: { start: now } },
-              "Active on Machine": { checkbox: true },
-            },
+            properties,
           });
           updatedPresent += 1;
         } else {
           skipped += 1;
         }
 
-        if (!existing.hasProfileImage) {
+        if (!existing.hasProfileImage || machineChanged) {
           const uploaded = await this.uploadProfileImage(existing.pageId, profileName, profile);
           if (uploaded) {
             imagesUploaded += 1;
@@ -256,9 +301,6 @@ export class NotionClient {
         }
         continue;
       }
-
-      const profileJson = JSON.stringify(profile);
-      const description = typeof profile?.description === "string" ? profile.description : "";
 
       const createdPage = await this.client.pages.create({
         parent: { database_id: this.config.profilesDbId },
@@ -270,10 +312,10 @@ export class NotionClient {
             rich_text: this.toRichText(description),
           },
           "Profile Type": {
-            select: { name: this.mapProfileType(profile?.type) },
+            select: { name: mappedType },
           },
           Source: {
-            select: { name: this.mapProfileSource(profile) },
+            select: { name: mappedSource },
           },
           "Active on Machine": {
             checkbox: true,
@@ -289,6 +331,7 @@ export class NotionClient {
           },
         },
       });
+      matchedPageIds.add(createdPage.id);
 
       const uploaded = await this.uploadProfileImage(createdPage.id, profileName, profile);
       if (uploaded) {
@@ -298,8 +341,8 @@ export class NotionClient {
     }
 
     // Keep historical profiles, but mark ones no longer on machine as inactive.
-    for (const [name, existing] of existingProfiles.entries()) {
-      if (machineNames.has(name)) continue;
+    for (const existing of existingProfiles.all) {
+      if (matchedPageIds.has(existing.pageId)) continue;
       if (existing.activeOnMachine === true) {
         await this.client.pages.update({
           page_id: existing.pageId,
@@ -405,8 +448,10 @@ export class NotionClient {
     return name.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
-  private async listExistingProfiles(): Promise<Map<string, { pageId: string; pushStatus: string | null; activeOnMachine: boolean | null; hasProfileImage: boolean }>> {
-    const profiles = new Map<string, { pageId: string; pushStatus: string | null; activeOnMachine: boolean | null; hasProfileImage: boolean }>();
+  private async listExistingProfiles(): Promise<ExistingProfilesIndex> {
+    const byName = new Map<string, ExistingProfileRecord>();
+    const byId = new Map<string, ExistingProfileRecord>();
+    const all: ExistingProfileRecord[] = [];
     let cursor: string | undefined;
 
     do {
@@ -419,21 +464,33 @@ export class NotionClient {
       for (const page of response.results as any[]) {
         const normalized = this.normalizeProfileName(this.extractTitle(page));
         if (!normalized) continue;
+        const profileJson = this.extractRichText(page, "Profile JSON");
+        const profileId = this.extractProfileIdFromJson(profileJson);
         const pushStatusProp = page.properties?.["Push Status"];
         const activeOnMachineProp = page.properties?.["Active on Machine"];
         const profileImageProp = page.properties?.["Profile Image"];
-        profiles.set(normalized, {
+
+        const record: ExistingProfileRecord = {
           pageId: page.id,
+          normalizedName: normalized,
+          profileId,
+          profileJson,
           pushStatus: pushStatusProp?.type === "select" ? pushStatusProp.select?.name || null : null,
           activeOnMachine: activeOnMachineProp?.type === "checkbox" ? Boolean(activeOnMachineProp.checkbox) : null,
           hasProfileImage: profileImageProp?.type === "files" ? Array.isArray(profileImageProp.files) && profileImageProp.files.length > 0 : false,
-        });
+        };
+
+        all.push(record);
+        byName.set(normalized, record);
+        if (profileId) {
+          byId.set(profileId, record);
+        }
       }
 
       cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
     } while (cursor);
 
-    return profiles;
+    return { byName, byId, all };
   }
 
   private extractBrewActivityId(page: any): string | null {
@@ -453,6 +510,22 @@ export class NotionClient {
     }
 
     return null;
+  }
+
+  private extractProfileId(profile: any): string | null {
+    if (typeof profile?.id !== "string") return null;
+    const id = profile.id.trim();
+    return id.length > 0 ? id : null;
+  }
+
+  private extractProfileIdFromJson(profileJson: string): string | null {
+    if (!profileJson.trim()) return null;
+    try {
+      const parsed = JSON.parse(profileJson);
+      return this.extractProfileId(parsed);
+    } catch {
+      return null;
+    }
   }
 
   private toRichText(value: string): Array<{ text: { content: string } }> {

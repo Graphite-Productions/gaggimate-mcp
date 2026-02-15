@@ -13,7 +13,7 @@ export interface ProfilePhase {
   duration: number;
   temperature?: number;
   transition?: {
-    type: "linear" | "ease-out" | "ease-in" | "instant";
+    type: "linear" | "ease-out" | "ease-in" | "ease-in-out" | "instant";
     duration: number;
     adaptive?: boolean;
   };

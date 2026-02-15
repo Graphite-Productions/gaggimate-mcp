@@ -70,7 +70,7 @@ interface Phase {
   duration: number;              // seconds
   temperature?: number;          // 0 means inherit top-level
   transition?: {
-    type: "instant" | "linear" | "ease-in" | "ease-out";
+    type: "instant" | "linear" | "ease-in" | "ease-out" | "ease-in-out";
     duration: number;
     adaptive?: boolean;
   };
@@ -126,7 +126,7 @@ interface Phase {
 
 ## Unsupported / Rejected Values (v1)
 Reject these with `ENUM` error:
-- transition types not in `instant | linear | ease-in | ease-out`
+- transition types not in `instant | linear | ease-in | ease-out | ease-in-out`
 - pump target not in `pressure | flow`
 - target type not in `pressure | flow | volumetric | pumped`
 
