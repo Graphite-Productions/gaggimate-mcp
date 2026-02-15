@@ -136,6 +136,14 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
 
 **Profiles DB**
 - Bridge writes:
+  - On profile import from GaggiMate (create-only, no overwrite):
+    - `Profile Name`
+    - `Description`
+    - `Profile Type`
+    - `Source`
+    - `Active on Machine`
+    - `Profile JSON`
+    - `Push Status` (`Draft`)
   - `Push Status` (to `Pushed` or `Failed` after push attempts)
   - `Last Pushed` (timestamp on success)
 - Bridge reads:
@@ -211,6 +219,8 @@ WEBHOOK_SECRET=
 
 # Polling fallback (recommended: true until webhooks are set up)
 POLLING_FALLBACK=true
+PROFILE_IMPORT_ENABLED=true
+PROFILE_IMPORT_INTERVAL_MS=60000
 
 # Defaults are fine for most setups
 SYNC_INTERVAL_MS=30000
@@ -289,6 +299,12 @@ Pull an espresso shot on your machine. Within 30 seconds, a new entry should app
 4. Within 3 seconds (polling) the status should change to `Pushed`
 5. Check the GaggiMate — an "AI Profile" should appear
 
+### 4. Test profile import (GaggiMate → Notion)
+1. Create a new profile on the GaggiMate UI
+2. Pull a shot with that profile (immediate backfill), or wait up to 60 seconds (default import interval)
+3. Confirm a new page appears in the Notion Profiles DB
+4. Confirm existing Notion-only profiles were not deleted or modified
+
 ---
 
 ## Step 7: Set Up Webhooks (Optional)
@@ -310,7 +326,7 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 2. Go to **Webhooks** → Create new webhook
 3. Endpoint URL: `https://your-machine.tail12345.ts.net/webhook/notion`
 4. Subscribe to page property changes on the Profiles database
-5. Copy the webhook secret and add it to your `.env`:
+5. Optional: copy the webhook secret and add it to your `.env` to enforce request signature validation:
    ```
    WEBHOOK_SECRET=your_webhook_secret_here
    ```

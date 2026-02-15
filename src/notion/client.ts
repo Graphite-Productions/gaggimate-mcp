@@ -31,6 +31,8 @@ export class NotionClient {
     const profilePageId = await this.findProfilePageByName(brew.profileName);
     if (profilePageId) {
       properties.Profile = { relation: [{ id: profilePageId }] };
+    } else if (brew.profileName) {
+      console.warn(`No Profiles DB match found for profile name "${brew.profileName}"`);
     }
 
     const response = await this.client.pages.create({
@@ -136,6 +138,73 @@ export class NotionClient {
     return this.extractRichText(page, "Profile JSON") || null;
   }
 
+  /** Check whether a profile with this name already exists in Notion */
+  async hasProfileByName(profileName: string): Promise<boolean> {
+    const pageId = await this.findProfilePageByName(profileName);
+    return pageId !== null;
+  }
+
+  /**
+   * Import profiles discovered on GaggiMate into Notion.
+   * Create-only behavior: existing Notion profiles are never overwritten.
+   */
+  async importProfilesFromGaggiMate(profiles: any[]): Promise<{ created: number; skipped: number }> {
+    const existingNames = await this.listExistingProfileNames();
+    let created = 0;
+    let skipped = 0;
+
+    for (const profile of profiles) {
+      const profileName = typeof profile?.label === "string" ? profile.label.trim() : "";
+      const normalizedName = this.normalizeProfileName(profileName);
+
+      if (!normalizedName) {
+        skipped += 1;
+        continue;
+      }
+
+      // Do not overwrite profiles that already exist in Notion.
+      if (existingNames.has(normalizedName)) {
+        skipped += 1;
+        continue;
+      }
+
+      const profileJson = JSON.stringify(profile);
+      const description = typeof profile?.description === "string" ? profile.description : "";
+
+      await this.client.pages.create({
+        parent: { database_id: this.config.profilesDbId },
+        properties: {
+          "Profile Name": {
+            title: [{ text: { content: profileName } }],
+          },
+          Description: {
+            rich_text: this.toRichText(description),
+          },
+          "Profile Type": {
+            select: { name: this.mapProfileType(profile?.type) },
+          },
+          Source: {
+            select: { name: this.mapProfileSource(profile) },
+          },
+          "Active on Machine": {
+            checkbox: Boolean(profile?.selected),
+          },
+          "Profile JSON": {
+            rich_text: this.toRichText(profileJson),
+          },
+          "Push Status": {
+            select: { name: "Draft" },
+          },
+        },
+      });
+
+      existingNames.add(normalizedName);
+      created += 1;
+    }
+
+    return { created, skipped };
+  }
+
   // ─── Beans ────────────────────────────────────────────────
 
   /** List beans with optional filters */
@@ -191,16 +260,94 @@ export class NotionClient {
 
   private async findProfilePageByName(profileName: string): Promise<string | null> {
     if (!profileName) return null;
+    const requestedName = this.normalizeProfileName(profileName);
+    if (!requestedName) return null;
 
-    const response = await this.client.databases.query({
+    // Fast path: exact title match.
+    const exactMatch = await this.client.databases.query({
       database_id: this.config.profilesDbId,
       filter: {
         property: "Profile Name",
-        title: { equals: profileName },
+        title: { equals: profileName.trim() },
       },
       page_size: 1,
     });
+    if (exactMatch.results.length > 0) {
+      return exactMatch.results[0].id;
+    }
 
-    return response.results.length > 0 ? response.results[0].id : null;
+    // Fallback: scan profile names to allow case/spacing variations.
+    const response = await this.client.databases.query({
+      database_id: this.config.profilesDbId,
+      page_size: 100,
+    });
+
+    for (const page of response.results as any[]) {
+      const candidateName = this.normalizeProfileName(this.extractTitle(page));
+      if (candidateName === requestedName) {
+        return page.id;
+      }
+    }
+
+    return null;
+  }
+
+  private normalizeProfileName(name: string): string {
+    return name.trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  private async listExistingProfileNames(): Promise<Set<string>> {
+    const names = new Set<string>();
+    let cursor: string | undefined;
+
+    do {
+      const response = await this.client.databases.query({
+        database_id: this.config.profilesDbId,
+        start_cursor: cursor,
+        page_size: 100,
+      });
+
+      for (const page of response.results as any[]) {
+        const normalized = this.normalizeProfileName(this.extractTitle(page));
+        if (normalized) {
+          names.add(normalized);
+        }
+      }
+
+      cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
+    } while (cursor);
+
+    return names;
+  }
+
+  private toRichText(value: string): Array<{ text: { content: string } }> {
+    // Notion rich_text content has a per-segment limit; split long JSON safely.
+    const chunkSize = 1900;
+    if (!value) {
+      return [{ text: { content: "" } }];
+    }
+
+    const chunks: Array<{ text: { content: string } }> = [];
+    for (let i = 0; i < value.length; i += chunkSize) {
+      chunks.push({ text: { content: value.slice(i, i + chunkSize) } });
+    }
+    return chunks;
+  }
+
+  private mapProfileType(type: unknown): string {
+    const normalized = typeof type === "string" ? type.trim().toLowerCase() : "";
+    if (normalized.includes("flat")) return "Flat";
+    if (normalized.includes("declin")) return "Declining";
+    if (normalized.includes("bloom")) return "Blooming";
+    if (normalized.includes("lever")) return "Lever";
+    if (normalized.includes("turbo")) return "Turbo";
+    return "Custom";
+  }
+
+  private mapProfileSource(profile: any): string {
+    const label = typeof profile?.label === "string" ? profile.label.toLowerCase() : "";
+    if (label === "ai profile") return "AI-Generated";
+    if (profile?.utility === true) return "Stock";
+    return "Custom";
   }
 }

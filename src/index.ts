@@ -3,6 +3,7 @@ import { GaggiMateClient } from "./gaggimate/client.js";
 import { createServer } from "./http/server.js";
 import { ShotPoller } from "./sync/shotPoller.js";
 import { ProfilePoller } from "./sync/profilePoller.js";
+import { ProfileImportPoller } from "./sync/profileImportPoller.js";
 import { NotionClient } from "./notion/client.js";
 
 async function main() {
@@ -11,6 +12,7 @@ async function main() {
   console.log(`  HTTP port: ${config.http.port}`);
   console.log(`  Sync interval: ${config.sync.intervalMs}ms`);
   console.log(`  Polling fallback: ${config.sync.pollingFallback}`);
+  console.log(`  Profile import: ${config.sync.profileImportEnabled}`);
 
   // Initialize clients
   const gaggimate = new GaggiMateClient(config.gaggimate);
@@ -30,17 +32,32 @@ async function main() {
   shotPoller.start();
 
   // Start profile polling fallback
+  let profilePoller: ProfilePoller | null = null;
   if (config.sync.pollingFallback) {
-    const profilePoller = new ProfilePoller(gaggimate, notion, {
+    profilePoller = new ProfilePoller(gaggimate, notion, {
       intervalMs: config.sync.profilePollIntervalMs,
     });
     profilePoller.start();
+  }
+
+  let profileImportPoller: ProfileImportPoller | null = null;
+  if (config.sync.profileImportEnabled) {
+    profileImportPoller = new ProfileImportPoller(gaggimate, notion, {
+      intervalMs: config.sync.profileImportIntervalMs,
+    });
+    profileImportPoller.start();
   }
 
   // Handle shutdown
   const shutdown = () => {
     console.log("Shutting down...");
     shotPoller.stop();
+    if (profilePoller) {
+      profilePoller.stop();
+    }
+    if (profileImportPoller) {
+      profileImportPoller.stop();
+    }
     process.exit(0);
   };
   process.on("SIGINT", shutdown);

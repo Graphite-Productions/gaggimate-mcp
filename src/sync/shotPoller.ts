@@ -90,6 +90,22 @@ export class ShotPoller {
 
           // Map to brew data and create in Notion
           const brewData = shotToBrewData(shotData, transformed);
+
+          // If the shot references a profile that doesn't exist in Notion yet,
+          // import profiles from GaggiMate first so the brew relation can link.
+          if (brewData.profileName) {
+            const profileExists = await this.notion.hasProfileByName(brewData.profileName);
+            if (!profileExists) {
+              const machineProfiles = await this.gaggimate.fetchProfiles();
+              const importResult = await this.notion.importProfilesFromGaggiMate(machineProfiles);
+              if (importResult.created > 0) {
+                console.log(
+                  `Shot ${shotListItem.id}: imported ${importResult.created} profile(s) before brew sync`,
+                );
+              }
+            }
+          }
+
           await this.notion.createBrew(brewData);
 
           state.recordSync(shotListItem.id);

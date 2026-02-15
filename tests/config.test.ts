@@ -18,5 +18,7 @@ describe("config", () => {
     expect(config.http.port).toBe(3000);
     expect(config.sync.intervalMs).toBe(30000);
     expect(config.sync.profilePollIntervalMs).toBe(3000);
+    expect(config.sync.profileImportEnabled).toBe(true);
+    expect(config.sync.profileImportIntervalMs).toBe(60000);
   });
 });
