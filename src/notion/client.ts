@@ -6,6 +6,7 @@ import { renderProfileChartSvg } from "../visualization/profileChart.js";
 export class NotionClient {
   private client: Client;
   private config: NotionConfig;
+  private imageUploadDisabledReason: string | null = null;
 
   constructor(notionConfig: NotionConfig) {
     this.config = notionConfig;
@@ -486,6 +487,10 @@ export class NotionClient {
   }
 
   private async uploadProfileImage(pageId: string, profileName: string, profile: any): Promise<boolean> {
+    if (this.imageUploadDisabledReason) {
+      return false;
+    }
+
     try {
       const svg = renderProfileChartSvg(profile);
       const fileUpload = await this.createNotionFileUpload(`${this.sanitizeFileName(profileName)}.svg`, "image/svg+xml");
@@ -495,6 +500,10 @@ export class NotionClient {
       return true;
     } catch (error) {
       console.warn(`Profile "${profileName}": failed to upload Profile Image`, error);
+      if (error instanceof Error && error.message.includes("(401)")) {
+        this.imageUploadDisabledReason = "notion-file-upload-auth-failed";
+        console.warn("Disabling Profile Image uploads for this process after 401 responses from Notion file upload API.");
+      }
       return false;
     }
   }
@@ -527,6 +536,10 @@ export class NotionClient {
     const response = await fetch(uploadUrl, {
       method: "POST",
       body: formData,
+      headers: {
+        Authorization: `Bearer ${this.config.apiKey}`,
+        "Notion-Version": "2022-06-28",
+      },
       signal: AbortSignal.timeout(15000),
     });
 
