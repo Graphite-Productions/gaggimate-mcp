@@ -138,7 +138,7 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
 
 **Profiles DB**
 - Bridge writes:
-  - On profile import from GaggiMate (create-only, no overwrite):
+  - On profile reconcile from GaggiMate (non-destructive):
     - `Profile Name`
     - `Description`
     - `Profile Type`
@@ -147,6 +147,7 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
     - `Profile JSON`
     - `Push Status` (`Pushed`)
     - `Last Pushed` (import timestamp)
+  - Marks profiles not currently on machine as `Active on Machine = false` (keeps history in Notion)
   - `Push Status` (to `Pushed` or `Failed` after push attempts)
   - `Last Pushed` (timestamp on success)
 - Bridge reads:
@@ -308,7 +309,7 @@ Pull an espresso shot on your machine. Within 30 seconds, a new entry should app
 3. Confirm a new page appears in the Notion Profiles DB
 4. Confirm imported profile starts with `Push Status = Pushed`
 5. Confirm the brew's `Profile` relation links to that profile
-6. Confirm existing Notion-only profiles were not deleted or modified
+6. Confirm profiles removed from machine are marked `Active on Machine = false` (not deleted)
 
 ---
 

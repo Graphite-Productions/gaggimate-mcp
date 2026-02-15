@@ -46,9 +46,9 @@ export class ProfileImportPoller {
       }
 
       const result = await this.notion.importProfilesFromGaggiMate(profiles);
-      if (result.created > 0) {
+      if (result.created > 0 || result.updatedPresent > 0 || result.markedMissing > 0) {
         console.log(
-          `Profile import: created ${result.created} profile(s), skipped ${result.skipped} existing`,
+          `Profile import: created ${result.created}, updated ${result.updatedPresent}, marked missing ${result.markedMissing}, skipped ${result.skipped}`,
         );
       }
 
@@ -66,35 +66,47 @@ export class ProfileImportPoller {
   }
 
   private async backfillBrewProfileRelations(): Promise<{ scanned: number; linked: number }> {
-    const candidates = await this.notion.listBrewsMissingProfileRelation(100);
-    if (candidates.length === 0) {
-      return { scanned: 0, linked: 0 };
-    }
-
+    let scanned = 0;
     let linked = 0;
-    for (const brew of candidates) {
-      try {
-        if (!brew.activityId) {
-          continue;
-        }
+    const maxRowsPerRun = 1000;
 
-        const shot = await this.gaggimate.fetchShot(brew.activityId);
-        if (!shot?.profileName) {
-          continue;
-        }
+    while (scanned < maxRowsPerRun) {
+      const remaining = maxRowsPerRun - scanned;
+      const candidates = await this.notion.listBrewsMissingProfileRelation(Math.min(100, remaining));
+      if (candidates.length === 0) {
+        break;
+      }
 
-        const profilePageId = await this.notion.getProfilePageIdByName(shot.profileName);
-        if (!profilePageId) {
-          continue;
-        }
+      scanned += candidates.length;
 
-        await this.notion.setBrewProfileRelation(brew.pageId, profilePageId);
-        linked += 1;
-      } catch (error) {
-        console.error(`Brew ${brew.pageId}: profile backfill failed:`, error);
+      for (const brew of candidates) {
+        try {
+          if (!brew.activityId) {
+            continue;
+          }
+
+          const shot = await this.gaggimate.fetchShot(brew.activityId);
+          if (!shot?.profileName) {
+            continue;
+          }
+
+          const profilePageId = await this.notion.getProfilePageIdByName(shot.profileName);
+          if (!profilePageId) {
+            continue;
+          }
+
+          await this.notion.setBrewProfileRelation(brew.pageId, profilePageId);
+          linked += 1;
+        } catch (error) {
+          console.error(`Brew ${brew.pageId}: profile backfill failed:`, error);
+        }
+      }
+
+      if (candidates.length < 100) {
+        break;
       }
     }
 
-    return { scanned: candidates.length, linked };
+    return { scanned, linked };
   }
 }

@@ -123,10 +123,7 @@ export class NotionClient {
       });
 
       for (const page of response.results as any[]) {
-        const activityIdProp = page.properties?.["Activity ID"];
-        const activityId = activityIdProp?.type === "rich_text"
-          ? activityIdProp.rich_text?.map((t: any) => t.plain_text).join("") || null
-          : null;
+        const activityId = this.extractBrewActivityId(page);
         results.push({
           pageId: page.id,
           activityId,
@@ -198,12 +195,25 @@ export class NotionClient {
 
   /**
    * Import profiles discovered on GaggiMate into Notion.
-   * Create-only behavior: existing Notion profiles are never overwritten.
+   * Non-destructive reconciliation:
+   * - Create missing machine profiles in Notion
+   * - Mark machine-present profiles as Pushed + Active on Machine
+   * - Mark machine-missing profiles as Active on Machine = false
+   * - Never delete Notion profiles
    */
-  async importProfilesFromGaggiMate(profiles: any[]): Promise<{ created: number; skipped: number }> {
-    const existingNames = await this.listExistingProfileNames();
+  async importProfilesFromGaggiMate(profiles: any[]): Promise<{
+    created: number;
+    updatedPresent: number;
+    markedMissing: number;
+    skipped: number;
+  }> {
+    const existingProfiles = await this.listExistingProfiles();
+    const machineNames = new Set<string>();
     let created = 0;
+    let updatedPresent = 0;
+    let markedMissing = 0;
     let skipped = 0;
+    const now = new Date().toISOString();
 
     for (const profile of profiles) {
       const profileName = typeof profile?.label === "string" ? profile.label.trim() : "";
@@ -214,9 +224,25 @@ export class NotionClient {
         continue;
       }
 
-      // Do not overwrite profiles that already exist in Notion.
-      if (existingNames.has(normalizedName)) {
-        skipped += 1;
+      machineNames.add(normalizedName);
+      const existing = existingProfiles.get(normalizedName);
+
+      if (existing) {
+        // Ensure machine-present profiles are clearly marked as present/pushed.
+        const needsUpdate = existing.pushStatus !== "Pushed" || existing.activeOnMachine !== true;
+        if (needsUpdate) {
+          await this.client.pages.update({
+            page_id: existing.pageId,
+            properties: {
+              "Push Status": { select: { name: "Pushed" } },
+              "Last Pushed": { date: { start: now } },
+              "Active on Machine": { checkbox: true },
+            },
+          });
+          updatedPresent += 1;
+        } else {
+          skipped += 1;
+        }
         continue;
       }
 
@@ -239,7 +265,7 @@ export class NotionClient {
             select: { name: this.mapProfileSource(profile) },
           },
           "Active on Machine": {
-            checkbox: Boolean(profile?.selected),
+            checkbox: true,
           },
           "Profile JSON": {
             rich_text: this.toRichText(profileJson),
@@ -248,16 +274,29 @@ export class NotionClient {
             select: { name: "Pushed" },
           },
           "Last Pushed": {
-            date: { start: new Date().toISOString() },
+            date: { start: now },
           },
         },
       });
 
-      existingNames.add(normalizedName);
       created += 1;
     }
 
-    return { created, skipped };
+    // Keep historical profiles, but mark ones no longer on machine as inactive.
+    for (const [name, existing] of existingProfiles.entries()) {
+      if (machineNames.has(name)) continue;
+      if (existing.activeOnMachine === true) {
+        await this.client.pages.update({
+          page_id: existing.pageId,
+          properties: {
+            "Active on Machine": { checkbox: false },
+          },
+        });
+        markedMissing += 1;
+      }
+    }
+
+    return { created, updatedPresent, markedMissing, skipped };
   }
 
   // ─── Beans ────────────────────────────────────────────────
@@ -351,8 +390,8 @@ export class NotionClient {
     return name.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
-  private async listExistingProfileNames(): Promise<Set<string>> {
-    const names = new Set<string>();
+  private async listExistingProfiles(): Promise<Map<string, { pageId: string; pushStatus: string | null; activeOnMachine: boolean | null }>> {
+    const profiles = new Map<string, { pageId: string; pushStatus: string | null; activeOnMachine: boolean | null }>();
     let cursor: string | undefined;
 
     do {
@@ -364,15 +403,39 @@ export class NotionClient {
 
       for (const page of response.results as any[]) {
         const normalized = this.normalizeProfileName(this.extractTitle(page));
-        if (normalized) {
-          names.add(normalized);
-        }
+        if (!normalized) continue;
+        const pushStatusProp = page.properties?.["Push Status"];
+        const activeOnMachineProp = page.properties?.["Active on Machine"];
+        profiles.set(normalized, {
+          pageId: page.id,
+          pushStatus: pushStatusProp?.type === "select" ? pushStatusProp.select?.name || null : null,
+          activeOnMachine: activeOnMachineProp?.type === "checkbox" ? Boolean(activeOnMachineProp.checkbox) : null,
+        });
       }
 
       cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
     } while (cursor);
 
-    return names;
+    return profiles;
+  }
+
+  private extractBrewActivityId(page: any): string | null {
+    const activityIdProp = page.properties?.["Activity ID"];
+    if (activityIdProp?.type === "rich_text") {
+      const value = activityIdProp.rich_text?.map((t: any) => t.plain_text).join("") || "";
+      if (value.trim()) return value.trim();
+    }
+
+    // Fallback for legacy rows without Activity ID:
+    // infer shot ID from Brew title like "#027 - Feb 14 PM".
+    const brewTitleProp = page.properties?.Brew;
+    if (brewTitleProp?.type === "title") {
+      const title = brewTitleProp.title?.map((t: any) => t.plain_text).join("") || "";
+      const match = title.match(/^#0*([0-9]+)/);
+      if (match?.[1]) return match[1];
+    }
+
+    return null;
   }
 
   private toRichText(value: string): Array<{ text: { content: string } }> {
