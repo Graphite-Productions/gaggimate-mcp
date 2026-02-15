@@ -1,5 +1,7 @@
 # TrueNAS SCALE — paste this into Apps → Discover → Install via YAML
-# Then set environment variables in the TrueNAS UI.
+#
+# IMPORTANT: Set environment variables in the TrueNAS app configuration UI.
+# Do NOT set them in this file — TrueNAS manages env vars separately.
 #
 # Required environment variables:
 #   GAGGIMATE_HOST        - GaggiMate IP address (e.g., 192.168.1.100)
@@ -13,27 +15,13 @@
 #   WEBHOOK_SECRET        - Notion webhook secret
 #   POLLING_FALLBACK      - true (default) or false
 #   SYNC_INTERVAL_MS      - Shot polling interval in ms (default: 30000)
-#   HTTP_PORT             - HTTP server port (default: 3000)
 
-version: "3.8"
 services:
   gaggimate-bridge:
     image: ghcr.io/graphite-productions/gaggimate-bridge:latest
-    container_name: gaggimate-bridge
     restart: unless-stopped
     ports:
       - "3000:3000"
-    environment:
-      - GAGGIMATE_HOST=${GAGGIMATE_HOST:-192.168.1.100}
-      - GAGGIMATE_PROTOCOL=${GAGGIMATE_PROTOCOL:-ws}
-      - NOTION_API_KEY=${NOTION_API_KEY}
-      - NOTION_BEANS_DB_ID=${NOTION_BEANS_DB_ID}
-      - NOTION_BREWS_DB_ID=${NOTION_BREWS_DB_ID}
-      - NOTION_PROFILES_DB_ID=${NOTION_PROFILES_DB_ID}
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
-      - POLLING_FALLBACK=${POLLING_FALLBACK:-true}
-      - SYNC_INTERVAL_MS=${SYNC_INTERVAL_MS:-30000}
-      - HTTP_PORT=3000
     volumes:
       - gaggimate-data:/app/data
     healthcheck:
