@@ -51,10 +51,50 @@ export class ProfileImportPoller {
           `Profile import: created ${result.created} profile(s), skipped ${result.skipped} existing`,
         );
       }
+
+      const linkResult = await this.backfillBrewProfileRelations();
+      if (linkResult.linked > 0) {
+        console.log(
+          `Profile import: linked ${linkResult.linked} brew(s) to profiles (scanned ${linkResult.scanned})`,
+        );
+      }
     } catch (error) {
       console.error("Profile import poller error:", error);
     } finally {
       this.running = false;
     }
+  }
+
+  private async backfillBrewProfileRelations(): Promise<{ scanned: number; linked: number }> {
+    const candidates = await this.notion.listBrewsMissingProfileRelation(100);
+    if (candidates.length === 0) {
+      return { scanned: 0, linked: 0 };
+    }
+
+    let linked = 0;
+    for (const brew of candidates) {
+      try {
+        if (!brew.activityId) {
+          continue;
+        }
+
+        const shot = await this.gaggimate.fetchShot(brew.activityId);
+        if (!shot?.profileName) {
+          continue;
+        }
+
+        const profilePageId = await this.notion.getProfilePageIdByName(shot.profileName);
+        if (!profilePageId) {
+          continue;
+        }
+
+        await this.notion.setBrewProfileRelation(brew.pageId, profilePageId);
+        linked += 1;
+      } catch (error) {
+        console.error(`Brew ${brew.pageId}: profile backfill failed:`, error);
+      }
+    }
+
+    return { scanned: candidates.length, linked };
   }
 }

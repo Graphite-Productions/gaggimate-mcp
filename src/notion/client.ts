@@ -95,6 +95,53 @@ export class NotionClient {
     });
   }
 
+  /** Set the Profile relation on an existing brew page */
+  async setBrewProfileRelation(brewPageId: string, profilePageId: string): Promise<void> {
+    await this.client.pages.update({
+      page_id: brewPageId,
+      properties: {
+        Profile: { relation: [{ id: profilePageId }] },
+      },
+    });
+  }
+
+  /** List brews where Profile relation is empty, including Activity ID for lookup */
+  async listBrewsMissingProfileRelation(limit = 100): Promise<Array<{ pageId: string; activityId: string | null }>> {
+    const results: Array<{ pageId: string; activityId: string | null }> = [];
+    let cursor: string | undefined;
+
+    while (results.length < limit) {
+      const pageSize = Math.min(100, limit - results.length);
+      const response = await this.client.databases.query({
+        database_id: this.config.brewsDbId,
+        filter: {
+          property: "Profile",
+          relation: { is_empty: true },
+        },
+        start_cursor: cursor,
+        page_size: pageSize,
+      });
+
+      for (const page of response.results as any[]) {
+        const activityIdProp = page.properties?.["Activity ID"];
+        const activityId = activityIdProp?.type === "rich_text"
+          ? activityIdProp.rich_text?.map((t: any) => t.plain_text).join("") || null
+          : null;
+        results.push({
+          pageId: page.id,
+          activityId,
+        });
+      }
+
+      if (!response.has_more || !response.next_cursor) {
+        break;
+      }
+      cursor = response.next_cursor;
+    }
+
+    return results;
+  }
+
   // ─── Profiles ─────────────────────────────────────────────
 
   /** Get all profiles with Push Status = "Queued" */
@@ -142,6 +189,11 @@ export class NotionClient {
   async hasProfileByName(profileName: string): Promise<boolean> {
     const pageId = await this.findProfilePageByName(profileName);
     return pageId !== null;
+  }
+
+  /** Resolve a profile page ID by profile name */
+  async getProfilePageIdByName(profileName: string): Promise<string | null> {
+    return this.findProfilePageByName(profileName);
   }
 
   /**
@@ -193,7 +245,10 @@ export class NotionClient {
             rich_text: this.toRichText(profileJson),
           },
           "Push Status": {
-            select: { name: "Draft" },
+            select: { name: "Pushed" },
+          },
+          "Last Pushed": {
+            date: { start: new Date().toISOString() },
           },
         },
       });

@@ -123,7 +123,9 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
   - `Total Volume`
   - `Yield Out` (only when weight exists)
   - `Source` (`Auto`)
-  - `Profile` relation (only if a matching `Profile Name` is found in Profiles DB)
+  - `Profile` relation (if a matching `Profile Name` is found in Profiles DB)
+- Bridge backfills:
+  - `Profile` relation for existing brews missing it (uses `Activity ID` + GaggiMate shot profile)
 - Notion/user-managed:
   - `Beans` relation
   - `Grind Setting`
@@ -143,7 +145,8 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
     - `Source`
     - `Active on Machine`
     - `Profile JSON`
-    - `Push Status` (`Draft`)
+    - `Push Status` (`Pushed`)
+    - `Last Pushed` (import timestamp)
   - `Push Status` (to `Pushed` or `Failed` after push attempts)
   - `Last Pushed` (timestamp on success)
 - Bridge reads:
@@ -303,7 +306,9 @@ Pull an espresso shot on your machine. Within 30 seconds, a new entry should app
 1. Create a new profile on the GaggiMate UI
 2. Pull a shot with that profile (immediate backfill), or wait up to 60 seconds (default import interval)
 3. Confirm a new page appears in the Notion Profiles DB
-4. Confirm existing Notion-only profiles were not deleted or modified
+4. Confirm imported profile starts with `Push Status = Pushed`
+5. Confirm the brew's `Profile` relation links to that profile
+6. Confirm existing Notion-only profiles were not deleted or modified
 
 ---
 

@@ -9,6 +9,7 @@ Forked from [Matvey-Kuk/gaggimate-mcp](https://github.com/Matvey-Kuk/gaggimate-m
 - **Auto-logs shots** — Polls GaggiMate every 30s for new shots, creates entries in your Notion Brews database with brew time, temperature, pressure, weight, and profile name
 - **Pushes profiles** — When you (or Notion AI) set a profile's Push Status to "Queued" in Notion, the service pushes it to the GaggiMate within seconds
 - **Imports profiles (create-only)** — Pulls profiles from GaggiMate into Notion without overwriting/deleting existing Notion profiles
+- **Backfills brew/profile links** — Automatically links existing brews to profiles when `Activity ID` + shot metadata identifies the profile
 - **Survives firmware updates** — Shot history on the ESP32 gets wiped by OTA updates; Notion is the permanent record
 
 ## Architecture
