@@ -93,7 +93,7 @@ describe("brewDataToNotionProperties", () => {
     const props = brewDataToNotionProperties(brew);
 
     // Title
-    expect(props.Name.title[0].text.content).toContain("#047");
+    expect(props.Brew.title[0].text.content).toContain("#047");
 
     // Activity ID for dedup
     expect(props["Activity ID"].rich_text[0].text.content).toBe("47");
@@ -111,9 +111,6 @@ describe("brewDataToNotionProperties", () => {
 
     // Source
     expect(props.Source.select.name).toBe("Auto");
-
-    // Profile as text
-    expect(props.Profile.rich_text[0].text.content).toBe("Classic 9-bar");
   });
 
   it("omits Yield Out when weight is null", () => {

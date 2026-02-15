@@ -26,6 +26,13 @@ export class NotionClient {
   /** Create a brew entry in Notion from shot data */
   async createBrew(brew: BrewData): Promise<string> {
     const properties = brewDataToNotionProperties(brew);
+
+    // If a profile with matching title exists, link it via the Profile relation.
+    const profilePageId = await this.findProfilePageByName(brew.profileName);
+    if (profilePageId) {
+      properties.Profile = { relation: [{ id: profilePageId }] };
+    }
+
     const response = await this.client.pages.create({
       parent: { database_id: this.config.brewsDbId },
       properties,
@@ -180,5 +187,20 @@ export class NotionClient {
     const prop = page.properties?.[propertyName];
     if (!prop || prop.type !== "rich_text") return "";
     return prop.rich_text?.map((t: any) => t.plain_text).join("") || "";
+  }
+
+  private async findProfilePageByName(profileName: string): Promise<string | null> {
+    if (!profileName) return null;
+
+    const response = await this.client.databases.query({
+      database_id: this.config.profilesDbId,
+      filter: {
+        property: "Profile Name",
+        title: { equals: profileName },
+      },
+      page_size: 1,
+    });
+
+    return response.results.length > 0 ? response.results[0].id : null;
   }
 }

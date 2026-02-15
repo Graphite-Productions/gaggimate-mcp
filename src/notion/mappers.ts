@@ -53,7 +53,7 @@ export function shotToBrewData(
 export function brewDataToNotionProperties(brew: BrewData): Record<string, any> {
   const properties: Record<string, any> = {
     // Title property
-    Name: {
+    Brew: {
       title: [{ text: { content: brew.title } }],
     },
     // Activity ID for dedup
@@ -79,10 +79,6 @@ export function brewDataToNotionProperties(brew: BrewData): Record<string, any> 
     },
     "Total Volume": {
       number: brew.totalVolume,
-    },
-    // Profile as text (relation would need page ID lookup)
-    Profile: {
-      rich_text: [{ text: { content: brew.profileName } }],
     },
     // Source
     Source: {

@@ -42,17 +42,19 @@ Create three databases in your Notion workspace. The names are flexible, but the
 
 | Property | Type | Notes |
 |---|---|---|
-| Bean Name | Title | Free-form name |
-| Roaster | Select | Builds list over time |
+| Bean Name | Title | Free-form name, e.g. "Ethiopia Yirgacheffe Natural" |
+| Roaster | Select | Builds reusable list over time |
 | Origin | Select | Country/region |
-| Process | Select | Natural, Washed, Honey, etc. |
+| Process | Select | Natural, Washed, Honey, Anaerobic, Wet-hulled |
 | Roast Level | Select | Light, Medium-Light, Medium, Medium-Dark, Dark |
-| Roast Date | Date | From the bag |
-| Open Date | Date | When you opened it |
+| Roast Date | Date | From the bag (when roasted) |
+| Open Date | Date | When you opened the bag |
+| Days Since Roast | Formula | `dateBetween(now(), prop("Roast Date"), "days")` |
 | Bag Size | Number | Grams |
 | Price | Number | Dollars |
-| Tasting Notes | Text | Your impressions |
-| Buy Again | Checkbox | Quick filter for favorites |
+| Tasting Notes | Text | Roaster notes or your impressions |
+| Buy Again | Checkbox | Quick favorites/re-order filter |
+| Purchase URL | URL | Re-order link |
 | Brews | Relation → Brews | Two-way relation |
 | Notes | Text | Anything else |
 
@@ -60,22 +62,24 @@ Create three databases in your Notion workspace. The names are flexible, but the
 
 | Property | Type | Notes |
 |---|---|---|
-| Name | Title | Auto-generated: "#047 - Feb 14 AM" |
-| Activity ID | Rich text | GaggiMate shot ID (dedup key) |
-| Date | Date | With time |
+| Brew | Title | Auto-generated, e.g. "#047 - Feb 14 AM" |
+| Activity ID | Text | GaggiMate shot ID (dedup key) |
+| Date | Date (with time) | When the shot was pulled |
 | Beans | Relation → Beans | Two-way relation |
-| Profile | Rich text | Profile name (auto-filled) |
-| Grind Setting | Number | User enters manually |
+| Profile | Relation → Profiles | Two-way relation |
+| Grind Setting | Number | User entry |
 | Dose In | Number | Grams |
-| Yield Out | Number | Grams (auto from scale if connected) |
+| Yield Out | Number | Grams (auto/manual) |
 | Ratio | Formula | `prop("Yield Out") / prop("Dose In")` |
-| Brew Time | Number | Seconds (auto from GaggiMate) |
-| Brew Temp | Number | Celsius (auto from GaggiMate) |
-| Pre-infusion Time | Number | Seconds (auto from GaggiMate) |
-| Peak Pressure | Number | Bar (auto from GaggiMate) |
-| Total Volume | Number | mL (auto from GaggiMate) |
-| Taste Notes | Text | User enters ("sour", "balanced", etc.) |
-| Source | Select | Options: `Auto`, `Manual` |
+| Brew Time | Number | Seconds (auto) |
+| Brew Temp | Number | Celsius (auto) |
+| Pre-infusion Time | Number | Seconds (auto) |
+| Peak Pressure | Number | Bar (auto) |
+| Total Volume | Number | mL (auto) |
+| Bean Age | Formula | Days between related Bean roast date and Brew date |
+| Taste Notes | Text | Free-form tasting notes |
+| Channeling | Checkbox | Visual channeling observed |
+| Source | Select | `Auto` or `Manual` |
 | Notes | Text | Anything else |
 
 ### Profiles Database
@@ -83,14 +87,70 @@ Create three databases in your Notion workspace. The names are flexible, but the
 | Property | Type | Notes |
 |---|---|---|
 | Profile Name | Title | e.g. "Classic 9-bar Flat" |
-| Description | Text | What this profile does |
+| Description | Text | What the profile does |
 | Profile Type | Select | Flat, Declining, Blooming, Lever, Turbo, Custom |
-| Profile JSON | Rich text | Raw JSON the machine reads (see format below) |
-| Push Status | Select | Options: `Draft`, `Queued`, `Pushed`, `Failed` |
-| Last Pushed | Date | With time (auto-set by bridge) |
+| Best For | Multi-select | Light Roast, Medium Roast, Dark Roast, etc. |
+| Source | Select | Stock, Community, AI-Generated, Custom |
 | Active on Machine | Checkbox | Tracking what's loaded |
+| Profile Image | File | Screenshot/export of curve |
+| Profile JSON | Text | Raw JSON the machine reads |
+| Push Status | Select | `Draft`, `Queued`, `Pushed`, `Failed` |
+| Last Pushed | Date (with time) | Auto-set by bridge |
 | Brews | Relation → Brews | Two-way relation |
 | Notes | Text | Anything else |
+
+Relations map:
+- Beans `<->` Brews (via `Brews` on Beans and `Beans` on Brews)
+- Profiles `<->` Brews (via `Brews` on Profiles and `Profile` on Brews)
+
+### What The Bridge Writes vs What Notion/User Owns
+
+The bridge does not manage every field. Keep formulas/relations in Notion, and let the bridge populate only the machine-derived fields.
+
+**Beans DB**
+- Bridge writes: none
+- Notion/user-managed: all properties (including formulas and relations)
+
+**Brews DB**
+- Bridge writes on create:
+  - `Brew`
+  - `Activity ID`
+  - `Date`
+  - `Brew Time`
+  - `Brew Temp`
+  - `Pre-infusion Time`
+  - `Peak Pressure`
+  - `Total Volume`
+  - `Yield Out` (only when weight exists)
+  - `Source` (`Auto`)
+  - `Profile` relation (only if a matching `Profile Name` is found in Profiles DB)
+- Notion/user-managed:
+  - `Beans` relation
+  - `Grind Setting`
+  - `Dose In`
+  - `Ratio` (formula)
+  - `Bean Age` (formula)
+  - `Taste Notes`
+  - `Channeling`
+  - `Notes`
+
+**Profiles DB**
+- Bridge writes:
+  - `Push Status` (to `Pushed` or `Failed` after push attempts)
+  - `Last Pushed` (timestamp on success)
+- Bridge reads:
+  - `Profile Name`
+  - `Profile JSON`
+  - `Push Status` (`Queued` trigger)
+- Notion/user-managed:
+  - `Description`
+  - `Profile Type`
+  - `Best For`
+  - `Source`
+  - `Active on Machine`
+  - `Profile Image`
+  - `Brews` relation
+  - `Notes`
 
 **After creating databases:** Share each one with your Notion integration (Step 3).
 
