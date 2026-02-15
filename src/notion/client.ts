@@ -13,6 +13,7 @@ interface ExistingProfileRecord {
   pushStatus: string | null;
   activeOnMachine: boolean | null;
   hasProfileImage: boolean;
+  source: string | null;
 }
 
 interface ExistingProfilesIndex {
@@ -240,6 +241,72 @@ export class NotionClient {
     });
   }
 
+  /** Archive a profile: set Push Status = "Archived", Active on Machine = false */
+  async archiveProfile(pageId: string): Promise<void> {
+    await this.client.pages.update({
+      page_id: pageId,
+      properties: {
+        "Push Status": { select: { name: "Archived" } },
+        "Active on Machine": { checkbox: false },
+      },
+    });
+  }
+
+  /**
+   * After pushing a profile, find sibling AI-Generated profiles with the same
+   * base name and archive them. Returns the number of profiles archived.
+   */
+  async findAndArchiveSiblings(
+    pushedPageId: string,
+    profileName: string,
+    source: string,
+  ): Promise<number> {
+    if (source !== "AI-Generated") return 0;
+
+    const baseName = this.profileBaseName(profileName);
+    if (!baseName) return 0;
+
+    // Query AI-Generated profiles
+    const response = await this.client.databases.query({
+      database_id: this.config.profilesDbId,
+      filter: {
+        property: "Source",
+        select: { equals: "AI-Generated" },
+      },
+      page_size: 100,
+    });
+
+    let archived = 0;
+    for (const page of response.results as any[]) {
+      if (page.id === pushedPageId) continue;
+
+      const candidateName = this.extractTitle(page);
+      if (this.profileBaseName(candidateName) !== baseName) continue;
+
+      const pushStatusProp = page.properties?.["Push Status"];
+      const status = pushStatusProp?.type === "select" ? pushStatusProp.select?.name : null;
+      if (status === "Archived") continue;
+
+      await this.archiveProfile(page.id);
+      console.log(`Archived sibling profile "${candidateName}" (${page.id})`);
+      archived += 1;
+    }
+
+    return archived;
+  }
+
+  /** Read profile page metadata needed for archive logic */
+  async getProfileMeta(pageId: string): Promise<{
+    name: string;
+    source: string | null;
+  }> {
+    const page = await this.client.pages.retrieve({ page_id: pageId }) as any;
+    const name = this.extractTitle(page);
+    const sourceProp = page.properties?.["Source"];
+    const source = sourceProp?.type === "select" ? sourceProp.select?.name || null : null;
+    return { name, source };
+  }
+
   /** Read the Profile JSON property from a profile page */
   async getProfileJSON(pageId: string): Promise<string | null> {
     const { profileJson } = await this.getProfilePushData(pageId);
@@ -396,8 +463,10 @@ export class NotionClient {
     }
 
     // Keep historical profiles, but mark ones no longer on machine as inactive.
+    // Skip archived profiles — they're already inactive by design.
     for (const existing of existingProfiles.all) {
       if (matchedPageIds.has(existing.pageId)) continue;
+      if (existing.pushStatus === "Archived") continue;
       if (existing.activeOnMachine === true) {
         await this.client.pages.update({
           page_id: existing.pageId,
@@ -517,6 +586,16 @@ export class NotionClient {
     return name.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
+  /** Strip version suffixes to find sibling profiles (e.g. "AI Espresso v2" → "ai espresso") */
+  private profileBaseName(name: string): string {
+    return name
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase()
+      .replace(/\s*(v\d+|#\d+|version\s*\d+|\(v\d+\))$/i, "")
+      .trim();
+  }
+
   private async listExistingProfiles(): Promise<ExistingProfilesIndex> {
     const byName = new Map<string, ExistingProfileRecord>();
     const byId = new Map<string, ExistingProfileRecord>();
@@ -538,6 +617,7 @@ export class NotionClient {
         const pushStatusProp = page.properties?.["Push Status"];
         const activeOnMachineProp = page.properties?.["Active on Machine"];
         const profileImageProp = page.properties?.["Profile Image"];
+        const sourceProp = page.properties?.["Source"];
 
         const record: ExistingProfileRecord = {
           pageId: page.id,
@@ -547,12 +627,17 @@ export class NotionClient {
           pushStatus: pushStatusProp?.type === "select" ? pushStatusProp.select?.name || null : null,
           activeOnMachine: activeOnMachineProp?.type === "checkbox" ? Boolean(activeOnMachineProp.checkbox) : null,
           hasProfileImage: profileImageProp?.type === "files" ? Array.isArray(profileImageProp.files) && profileImageProp.files.length > 0 : false,
+          source: sourceProp?.type === "select" ? sourceProp.select?.name || null : null,
         };
 
         all.push(record);
-        byName.set(normalized, record);
-        if (profileId) {
-          byId.set(profileId, record);
+        // Archived profiles stay in `all` but are excluded from lookup maps
+        // so import sync won't overwrite them.
+        if (record.pushStatus !== "Archived") {
+          byName.set(normalized, record);
+          if (profileId) {
+            byId.set(profileId, record);
+          }
         }
       }
 

@@ -27,7 +27,7 @@ export interface BrewUpdateData {
 }
 
 // Profiles DB types
-export type PushStatus = "Draft" | "Queued" | "Pushed" | "Failed";
+export type PushStatus = "Draft" | "Queued" | "Pushed" | "Failed" | "Archived";
 
 export interface ProfileEntry {
   pageId: string;
