@@ -46,7 +46,7 @@ interface ShotSummary {
   };
 }
 
-interface TransformedShot {
+export interface TransformedShot {
   metadata: {
     shot_id: string;
     profile_name: string;

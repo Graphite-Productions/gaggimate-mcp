@@ -1,0 +1,58 @@
+import type { GaggiMateClient } from "../gaggimate/client.js";
+import type { NotionClient } from "../notion/client.js";
+
+/**
+ * Parse and validate Profile JSON, push to GaggiMate, update Notion status.
+ * Used by both webhook handler and profile poller.
+ */
+export async function pushProfileToGaggiMate(
+  gaggimate: GaggiMateClient,
+  notion: NotionClient,
+  pageId: string,
+  profileJsonStr: string,
+): Promise<void> {
+  let profile: any;
+  try {
+    profile = JSON.parse(profileJsonStr);
+  } catch {
+    console.error(`Profile ${pageId}: invalid JSON`);
+    await notion.updatePushStatus(pageId, "Failed");
+    return;
+  }
+
+  // Validate required fields
+  if (!profile.temperature || !Array.isArray(profile.phases) || profile.phases.length === 0) {
+    console.error(`Profile ${pageId}: missing temperature or phases`);
+    await notion.updatePushStatus(pageId, "Failed");
+    return;
+  }
+
+  // Validate temperature range
+  if (profile.temperature < 60 || profile.temperature > 100) {
+    console.error(`Profile ${pageId}: temperature ${profile.temperature} out of range (60-100)`);
+    await notion.updatePushStatus(pageId, "Failed");
+    return;
+  }
+
+  try {
+    // Push to GaggiMate
+    if (profile.label && profile.label !== "AI Profile") {
+      // Full profile save
+      await gaggimate.saveProfile(profile);
+    } else {
+      // AI Profile update (uses the two-step list-then-save flow)
+      await gaggimate.updateAIProfile({
+        temperature: profile.temperature,
+        phases: profile.phases,
+      });
+    }
+
+    // Success — update Notion
+    const now = new Date().toISOString();
+    await notion.updatePushStatus(pageId, "Pushed", now);
+    console.log(`Profile ${pageId}: pushed to GaggiMate`);
+  } catch (error) {
+    console.error(`Profile ${pageId}: push failed:`, error);
+    await notion.updatePushStatus(pageId, "Failed");
+  }
+}
