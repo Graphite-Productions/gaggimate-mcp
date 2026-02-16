@@ -70,11 +70,7 @@ function transitionType(phase?: ChartProfilePhase): string {
   return normalized || "instant";
 }
 
-function hasCurvedTransition(phase?: ChartProfilePhase): boolean {
-  return transitionDuration(phase) > 0 && transitionType(phase) !== "instant";
-}
-
-function buildSeries(profile: ChartProfile): {
+export function buildSeries(profile: ChartProfile): {
   pressure: SeriesPoint[];
   flow: SeriesPoint[];
   totalDuration: number;
@@ -109,24 +105,20 @@ function buildSeries(profile: ChartProfile): {
     const end = currentTime + duration;
     phaseSpans.push({ name: phaseName, start, end });
 
-    const targetPressure = typeof phase.pump?.pressure === "number"
-      ? clamp(phase.pump.pressure, 0, 15)
+    const rawPressure = Number(phase.pump?.pressure);
+    const targetPressure = Number.isFinite(rawPressure)
+      ? clamp(rawPressure, 0, 15)
       : currentPressure;
 
+    const rawFlow = Number(phase.pump?.flow);
     let targetFlow = currentFlow;
-    if (typeof phase.pump?.flow === "number") {
-      targetFlow = phase.pump.flow === -1
-        ? currentFlow
-        : clamp(phase.pump.flow, 0, 12);
+    if (Number.isFinite(rawFlow)) {
+      targetFlow = rawFlow === -1 ? currentFlow : clamp(rawFlow, 0, 12);
     }
 
-    const previousPhase = i > 0 ? phases[i - 1] : undefined;
-    // Transition into this phase: can be on current phase (entry ramp) or previous phase (exit ramp)
-    const currentHasTransition = hasCurvedTransition(phase) || transitionDuration(phase) > 0;
-    const previousHasTransition = previousPhase && (hasCurvedTransition(previousPhase) || transitionDuration(previousPhase) > 0);
-    const transitionSource = currentHasTransition ? phase : previousHasTransition ? previousPhase : phase;
-    const startTransitionType = transitionType(transitionSource);
-    const startTransitionDuration = clamp(transitionDuration(transitionSource), 0, duration);
+    // Each phase owns its own transition. No transition = instant (documented default).
+    const startTransitionType = transitionType(phase);
+    const startTransitionDuration = clamp(transitionDuration(phase), 0, duration);
 
     for (let dt = 0; dt <= duration + 1e-6; dt += sampleStep) {
       const absTime = currentTime + Math.min(dt, duration);

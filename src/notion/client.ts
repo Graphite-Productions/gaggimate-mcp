@@ -415,9 +415,14 @@ export class NotionClient {
           skipped += 1;
         }
 
-        if (!existing.hasProfileImage || machineChanged) {
+        // Re-render chart when: no image yet, machine data changed, or Notion JSON
+        // was edited (e.g. user added transitions via AI or manual edit).
+        const notionJsonDiffers = existing.profileJson !== profileJson;
+        const needsImageUpdate = !existing.hasProfileImage || machineChanged || notionJsonDiffers;
+
+        if (needsImageUpdate) {
           // When machineChanged, we're overwriting Profile JSON with GaggiMate — use that for chart.
-          // When !machineChanged, prefer Notion's Profile JSON (may have transitions from AI/manual edit).
+          // Otherwise prefer Notion's Profile JSON (may have richer transition data).
           const profileJsonForChart = machineChanged ? undefined : existing.profileJson;
           const uploaded = await this.uploadProfileImage(existing.pageId, profileName, profile, profileJsonForChart);
           if (uploaded) {
