@@ -416,7 +416,10 @@ export class NotionClient {
         }
 
         if (!existing.hasProfileImage || machineChanged) {
-          const uploaded = await this.uploadProfileImage(existing.pageId, profileName, profile);
+          // When machineChanged, we're overwriting Profile JSON with GaggiMate — use that for chart.
+          // When !machineChanged, prefer Notion's Profile JSON (may have transitions from AI/manual edit).
+          const profileJsonForChart = machineChanged ? undefined : existing.profileJson;
+          const uploaded = await this.uploadProfileImage(existing.pageId, profileName, profile, profileJsonForChart);
           if (uploaded) {
             imagesUploaded += 1;
           }
@@ -455,7 +458,7 @@ export class NotionClient {
       });
       matchedPageIds.add(createdPage.id);
 
-      const uploaded = await this.uploadProfileImage(createdPage.id, profileName, profile);
+      const uploaded = await this.uploadProfileImage(createdPage.id, profileName, profile, profileJson);
       if (uploaded) {
         imagesUploaded += 1;
       }
@@ -713,13 +716,29 @@ export class NotionClient {
     return "Custom";
   }
 
-  private async uploadProfileImage(pageId: string, profileName: string, profile: any): Promise<boolean> {
+  /**
+   * Prefer profileJsonForChart when it has transition data (e.g. from Notion AI or manual edit).
+   * GaggiMate API may return profiles without transitions; Notion's stored JSON can be more complete.
+   */
+  private async uploadProfileImage(pageId: string, profileName: string, profile: any, profileJsonForChart?: string | null): Promise<boolean> {
     if (this.imageUploadDisabledReason) {
       return false;
     }
 
+    let chartProfile = profile;
+    if (profileJsonForChart?.trim()) {
+      try {
+        const parsed = JSON.parse(profileJsonForChart) as any;
+        if (parsed && Array.isArray(parsed.phases) && parsed.phases.length > 0) {
+          chartProfile = parsed;
+        }
+      } catch {
+        /* use GaggiMate profile */
+      }
+    }
+
     try {
-      const svg = renderProfileChartSvg(profile);
+      const svg = renderProfileChartSvg(chartProfile);
       const fileUpload = await this.createNotionFileUpload(`${this.sanitizeFileName(profileName)}.svg`, "image/svg+xml");
       await this.sendFileUpload(fileUpload.uploadUrl, `${this.sanitizeFileName(profileName)}.svg`, "image/svg+xml", svg);
       await this.attachProfileImage(pageId, fileUpload.id);

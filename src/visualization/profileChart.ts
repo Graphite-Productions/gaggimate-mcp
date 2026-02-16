@@ -45,12 +45,24 @@ function easing(type: string, x: number): number {
   return t;
 }
 
+/** Extract transition from phase, handling API format variations (transition/Transition, duration as number or string) */
+function getTransition(phase: any): { type?: string; duration?: number } | undefined {
+  if (!phase || typeof phase !== "object") return undefined;
+  const t = phase.transition ?? phase.Transition;
+  if (!t || typeof t !== "object") return undefined;
+  const duration = typeof t.duration === "number" ? t.duration : Number(t.duration ?? t.Duration);
+  const type = typeof t.type === "string" ? t.type : (typeof t.Type === "string" ? t.Type : undefined);
+  return { type, duration: Number.isFinite(duration) ? duration : undefined };
+}
+
 function transitionDuration(phase?: ChartProfilePhase): number {
-  return Number(phase?.transition?.duration) || 0;
+  const t = getTransition(phase);
+  return typeof t?.duration === "number" ? t.duration : 0;
 }
 
 function transitionType(phase?: ChartProfilePhase): string {
-  const raw = typeof phase?.transition?.type === "string" ? phase.transition.type.toLowerCase() : "";
+  const t = getTransition(phase);
+  const raw = typeof t?.type === "string" ? t.type.toLowerCase() : "";
   const normalized = raw.replace(/[_\s]+/g, "-");
   if (normalized === "easein") return "ease-in";
   if (normalized === "easeout") return "ease-out";
@@ -109,9 +121,10 @@ function buildSeries(profile: ChartProfile): {
     }
 
     const previousPhase = i > 0 ? phases[i - 1] : undefined;
-    const transitionSource = hasCurvedTransition(phase) || transitionDuration(phase) > 0
-      ? phase
-      : previousPhase;
+    // Transition into this phase: can be on current phase (entry ramp) or previous phase (exit ramp)
+    const currentHasTransition = hasCurvedTransition(phase) || transitionDuration(phase) > 0;
+    const previousHasTransition = previousPhase && (hasCurvedTransition(previousPhase) || transitionDuration(previousPhase) > 0);
+    const transitionSource = currentHasTransition ? phase : previousHasTransition ? previousPhase : phase;
     const startTransitionType = transitionType(transitionSource);
     const startTransitionDuration = clamp(transitionDuration(transitionSource), 0, duration);
 
