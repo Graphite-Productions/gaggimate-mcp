@@ -1,5 +1,7 @@
 # Profile Reconciliation Implementation Plan
 
+> **Completed.** All steps in this plan have been implemented. This document is a historical record. The live behavior is described in `mcp-json-validation.md` and `NOTION-WORKSPACE-SETUP.md`.
+
 ## Verification Summary
 
 The overall direction is correct and should resolve the current overwrite race:

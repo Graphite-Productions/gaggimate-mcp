@@ -82,6 +82,8 @@ If you want a single copy/paste page specifically for Notion setup and AI instru
 | Taste Notes | Text | Free-form tasting notes |
 | Channeling | Checkbox | Visual channeling observed |
 | Source | Select | `Auto` or `Manual` |
+| Shot JSON | Text | Bridge-written — full transformed shot data |
+| Brew Profile | Files | Bridge-written — brew chart SVG |
 | Notes | Text | Anything else |
 
 ### Profiles Database

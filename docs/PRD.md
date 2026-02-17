@@ -1,3 +1,5 @@
+> **Historical planning document.** This PRD was written before implementation and reflects the original design intent. The codebase diverges in several areas: the service is a plain HTTP bridge (no MCP protocol), the polling fallback is 30s (not 3s), the architecture diagram labels are outdated, and the dev phase checklists were never updated. For current operational details, see `SETUP.md` and `NOTION-WORKSPACE-SETUP.md`.
+
 ## Navigation
 
 **Quick Links**
