@@ -412,6 +412,31 @@ describe("ProfileReconciler", () => {
     expect(notion.updatePushStatus).not.toHaveBeenCalledWith("archived-page", "Failed");
   });
 
+  it("does not delete archived profiles that are already marked inactive", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([{ id: "archived-id", label: "Custom Profile", utility: false }]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "archived-inactive",
+          normalizedName: "custom profile",
+          profileId: "archived-id",
+          profileJson: JSON.stringify({ id: "archived-id", label: "Custom Profile" }),
+          pushStatus: "Archived",
+          activeOnMachine: false,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.deleteProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).not.toHaveBeenCalledWith("archived-inactive", "Archived", undefined, false);
+  });
+
   it("marks archived profile inactive when already missing on device", async () => {
     const gaggimate = createMockGaggimate();
     gaggimate.fetchProfiles.mockResolvedValue([]);

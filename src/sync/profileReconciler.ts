@@ -210,18 +210,6 @@ export class ProfileReconciler {
       const now = new Date().toISOString();
       await this.notion.updatePushStatus(notionProfile.pageId, "Pushed", now, true);
       console.log(`Profile ${notionProfile.pageId}: pushed to device`);
-
-      try {
-        const meta = await this.notion.getProfileMeta(notionProfile.pageId);
-        if (meta.source === "AI-Generated") {
-          const archivedCount = await this.notion.findAndArchiveSiblings(notionProfile.pageId, meta.name, meta.source);
-          if (archivedCount > 0) {
-            console.log(`Profile ${notionProfile.pageId}: archived ${archivedCount} sibling version(s)`);
-          }
-        }
-      } catch (error) {
-        console.warn(`Profile ${notionProfile.pageId}: archive sibling step failed:`, error);
-      }
     } catch (error) {
       console.error(`Profile ${notionProfile.pageId}: push failed:`, error);
       await this.notion.updatePushStatus(notionProfile.pageId, "Failed");
@@ -291,19 +279,21 @@ export class ProfileReconciler {
     notionProfile: ExistingProfileRecord,
     deviceById: Map<string, any>,
   ): Promise<void> {
+    // Safety: archived rows that are already marked inactive are treated as
+    // historical/unmanaged and should not trigger destructive device deletes.
+    if (notionProfile.activeOnMachine === false) {
+      return;
+    }
+
     const deviceId = notionProfile.profileId;
     if (!deviceId) {
-      if (notionProfile.activeOnMachine !== false) {
-        await this.notion.updatePushStatus(notionProfile.pageId, "Archived", undefined, false);
-      }
+      await this.notion.updatePushStatus(notionProfile.pageId, "Archived", undefined, false);
       return;
     }
 
     const deviceProfile = deviceById.get(deviceId);
     if (!deviceProfile) {
-      if (notionProfile.activeOnMachine !== false) {
-        await this.notion.updatePushStatus(notionProfile.pageId, "Archived", undefined, false);
-      }
+      await this.notion.updatePushStatus(notionProfile.pageId, "Archived", undefined, false);
       return;
     }
 

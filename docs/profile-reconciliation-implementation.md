@@ -78,7 +78,7 @@ Loop phases:
 
 1. Fetch device profiles and Notion profile index.
 2. Process every Notion profile by status:
-   - `Queued`: validate JSON, save to device, write back assigned ID if missing, set `Pushed` + `Active on Machine = true`, archive AI siblings.
+   - `Queued`: validate JSON, save to device, write back assigned ID if missing, set `Pushed` + `Active on Machine = true`.
    - `Pushed`: if missing on device, re-push from Notion; if present and drifted, re-push Notion JSON; then sync favorite/selected.
    - `Archived`: delete from device if present and not utility; set `Active on Machine = false`.
    - `Draft`/`Failed`: no device action.

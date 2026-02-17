@@ -164,7 +164,7 @@ describe("pushProfileToGaggiMate", () => {
     expect(notion.updatePushStatus).toHaveBeenCalledWith("page-9", "Failed");
   });
 
-  it("archives siblings for AI-generated profiles", async () => {
+  it("does not auto-archive siblings for AI-generated profiles", async () => {
     const gaggimate = createMockGaggiMate();
     const notion = createMockNotion();
     notion.getProfileMeta.mockResolvedValue({ name: "AI Profile v2", source: "AI-Generated" });
@@ -177,6 +177,7 @@ describe("pushProfileToGaggiMate", () => {
 
     await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-10", profileJson);
 
-    expect(notion.findAndArchiveSiblings).toHaveBeenCalledWith("page-10", "AI Profile v2", "AI-Generated");
+    expect(notion.findAndArchiveSiblings).not.toHaveBeenCalled();
+    expect(notion.getProfileMeta).not.toHaveBeenCalled();
   });
 });

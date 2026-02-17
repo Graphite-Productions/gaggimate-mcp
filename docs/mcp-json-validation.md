@@ -42,7 +42,6 @@ If any validation check fails:
 - Push to device via `saveProfile`.
 - If device returns a new `id`, write that `id` back into Notion `Profile JSON`.
 - Set `Push Status = Pushed`, `Last Pushed = now`, `Active on Machine = true`.
-- Preserve existing AI sibling archive behavior.
 
 ### `Pushed`
 - If missing on device: re-push from Notion JSON.

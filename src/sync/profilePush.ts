@@ -47,21 +47,6 @@ export async function pushProfileToGaggiMate(
     const now = new Date().toISOString();
     await notion.updatePushStatus(pageId, "Pushed", now, true);
     console.log(`Profile ${pageId}: pushed to GaggiMate`);
-
-    // Archive sibling versions (push status already set to "Pushed" above,
-    // which implicitly un-archives a previously archived profile).
-    try {
-      const meta = await notion.getProfileMeta(pageId);
-      if (meta.source === "AI-Generated") {
-        const count = await notion.findAndArchiveSiblings(pageId, meta.name, meta.source);
-        if (count > 0) {
-          console.log(`Profile ${pageId}: archived ${count} sibling version(s)`);
-        }
-      }
-    } catch (archiveError) {
-      // Archive is best-effort — don't fail the push over it
-      console.warn(`Profile ${pageId}: archive siblings failed:`, archiveError);
-    }
   } catch (error) {
     console.error(`Profile ${pageId}: push failed:`, error);
     await notion.updatePushStatus(pageId, "Failed");

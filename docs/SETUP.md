@@ -166,7 +166,7 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
   - `Push Status`
   - `Favorite`
   - `Selected`
-  - `Profile Name` / `Source` (for matching + AI sibling archive behavior)
+  - `Profile Name` / `Source` (for matching and profile metadata)
 - Notion/user-managed:
   - `Best For`
   - `Profile Image` (optional manual override)
