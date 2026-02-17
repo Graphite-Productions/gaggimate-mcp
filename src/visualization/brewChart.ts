@@ -45,26 +45,32 @@ interface BrewSeries {
 }
 
 /**
- * Downsample points to at most `maxPoints` using LTTB-like min/max bucketing.
- * Preserves visual shape while keeping SVG path length manageable.
+ * Downsample points to at most `maxPoints` using min-max bucketing.
+ * Each bucket contributes both its minimum and maximum point (in time order),
+ * preserving peaks and valleys such as pressure dips from channeling.
  */
 function downsample(points: SeriesPoint[], maxPoints: number): SeriesPoint[] {
   if (points.length <= maxPoints) return points;
-  const bucketSize = points.length / maxPoints;
+  // Use half as many buckets so that min+max per bucket stays within maxPoints.
+  const bucketCount = Math.max(1, Math.floor(maxPoints / 2));
+  const bucketSize = points.length / bucketCount;
   const result: SeriesPoint[] = [points[0]];
 
-  for (let i = 1; i < maxPoints - 1; i++) {
+  for (let i = 1; i < bucketCount - 1; i++) {
     const start = Math.floor(i * bucketSize);
     const end = Math.min(Math.floor((i + 1) * bucketSize), points.length);
-    let maxV = -Infinity;
-    let pick = start;
+    let minV = Infinity, maxV = -Infinity;
+    let minIdx = start, maxIdx = start;
     for (let j = start; j < end; j++) {
-      if (points[j].v > maxV) {
-        maxV = points[j].v;
-        pick = j;
-      }
+      if (points[j].v < minV) { minV = points[j].v; minIdx = j; }
+      if (points[j].v > maxV) { maxV = points[j].v; maxIdx = j; }
     }
-    result.push(points[pick]);
+    // Add in chronological order so the path traces correctly
+    if (minIdx <= maxIdx) {
+      result.push(points[minIdx], points[maxIdx]);
+    } else {
+      result.push(points[maxIdx], points[minIdx]);
+    }
   }
   result.push(points[points.length - 1]);
   return result;

@@ -240,6 +240,16 @@ export class ProfileReconciler {
       const now = new Date().toISOString();
       await this.notion.updatePushStatus(notionProfile.pageId, "Pushed", now, true);
       console.log(`Profile ${notionProfile.pageId}: pushed to device`);
+
+      // Restore profile chart image if it was deleted (best-effort, non-blocking on failure).
+      if (!notionProfile.hasProfileImage) {
+        this.notion.uploadProfileImage(
+          notionProfile.pageId,
+          parsedProfile.label || notionProfile.normalizedName,
+          parsedProfile,
+          notionProfile.profileJson,
+        ).catch((error) => console.warn(`Profile ${notionProfile.pageId}: failed to restore profile image:`, error));
+      }
     } catch (error) {
       console.error(`Profile ${notionProfile.pageId}: push failed:`, error);
       await this.notion.updatePushStatus(notionProfile.pageId, "Failed");
@@ -276,6 +286,16 @@ export class ProfileReconciler {
         const now = new Date().toISOString();
         await this.notion.updatePushStatus(notionProfile.pageId, "Pushed", now, true);
         console.log(`Profile ${notionProfile.pageId}: re-pushed missing device profile`);
+
+        // Restore profile chart image if it was deleted (best-effort, non-blocking on failure).
+        if (!notionProfile.hasProfileImage) {
+          this.notion.uploadProfileImage(
+            notionProfile.pageId,
+            notionProfileJson.label || notionProfile.normalizedName,
+            notionProfileJson,
+            notionProfile.profileJson,
+          ).catch((error) => console.warn(`Profile ${notionProfile.pageId}: failed to restore profile image:`, error));
+        }
       } catch (error) {
         console.error(`Profile ${notionProfile.pageId}: failed to re-push missing profile:`, error);
         await this.notion.updatePushStatus(notionProfile.pageId, "Failed");
@@ -312,6 +332,16 @@ export class ProfileReconciler {
 
     if (notionProfile.activeOnMachine !== true) {
       await this.notion.updatePushStatus(notionProfile.pageId, "Pushed", undefined, true);
+    }
+
+    // Restore profile chart image if it was deleted (best-effort, non-blocking on failure).
+    if (!notionProfile.hasProfileImage) {
+      this.notion.uploadProfileImage(
+        notionProfile.pageId,
+        notionProfileJson.label || notionProfile.normalizedName,
+        notionProfileJson,
+        notionProfile.profileJson,
+      ).catch((error) => console.warn(`Profile ${notionProfile.pageId}: failed to restore profile image:`, error));
     }
   }
 

@@ -160,8 +160,11 @@ export function renderProfileChartSvg(profile: ChartProfile): string {
   const chartH = height - margin.top - margin.bottom;
 
   const { pressure, flow, totalDuration, phases } = buildSeries(profile);
-  const maxPressure = Math.max(12, ...pressure.map((p) => p.v), 1);
-  const maxFlow = Math.max(8, ...flow.map((p) => p.v), 1);
+  // Iterative max to avoid call-stack overflow with large point arrays
+  let maxPressure = 12;
+  for (const p of pressure) { if (p.v > maxPressure) maxPressure = p.v; }
+  let maxFlow = 8;
+  for (const p of flow) { if (p.v > maxFlow) maxFlow = p.v; }
 
   const x = (t: number) => margin.left + (t / totalDuration) * chartW;
   const yPressure = (v: number) => margin.top + chartH - (v / maxPressure) * chartH;
