@@ -57,8 +57,7 @@ function createMockGaggimate() {
 
 function createMockNotion() {
   return {
-    getProfilePushData: vi.fn(),
-    getProfilePreferenceState: vi.fn(),
+    getProfilePageData: vi.fn(),
     extractProfileIdFromJson: vi.fn(),
     extractProfileId: vi.fn().mockImplementation((profile: any) => {
       if (typeof profile?.id === "string" && profile.id.trim()) {
@@ -84,12 +83,13 @@ describe("webhook route status handling", () => {
   it("syncs favorite and selected in background for Pushed profiles", async () => {
     const gaggimate = createMockGaggimate();
     const notion = createMockNotion();
-    notion.getProfilePushData.mockResolvedValue({
+    notion.getProfilePageData.mockResolvedValue({
       profileJson: JSON.stringify({ id: "device-123", label: "Profile" }),
       pushStatus: "Pushed",
+      favorite: true,
+      selected: true,
     });
     notion.extractProfileIdFromJson.mockReturnValue("device-123");
-    notion.getProfilePreferenceState.mockResolvedValue({ favorite: true, selected: true });
 
     const router = createWebhookRouter(gaggimate as any, notion as any);
     const handler = getNotionWebhookHandler(router);
@@ -116,9 +116,11 @@ describe("webhook route status handling", () => {
   it("ignores Archived status even if profile is selected/favorited", async () => {
     const gaggimate = createMockGaggimate();
     const notion = createMockNotion();
-    notion.getProfilePushData.mockResolvedValue({
+    notion.getProfilePageData.mockResolvedValue({
       profileJson: JSON.stringify({ id: "device-archived", label: "Archived" }),
       pushStatus: "Archived",
+      favorite: true,
+      selected: true,
     });
 
     const router = createWebhookRouter(gaggimate as any, notion as any);
@@ -137,10 +139,9 @@ describe("webhook route status handling", () => {
 
     // Wait for background to complete, then verify no device calls were made
     await vi.waitFor(() => {
-      expect(notion.getProfilePushData).toHaveBeenCalledTimes(1);
+      expect(notion.getProfilePageData).toHaveBeenCalledTimes(1);
     });
     expect(notion.extractProfileIdFromJson).not.toHaveBeenCalled();
-    expect(notion.getProfilePreferenceState).not.toHaveBeenCalled();
     expect(gaggimate.favoriteProfile).not.toHaveBeenCalled();
     expect(gaggimate.selectProfile).not.toHaveBeenCalled();
     expect(gaggimate.saveProfile).not.toHaveBeenCalled();
@@ -149,15 +150,16 @@ describe("webhook route status handling", () => {
   it("still pushes queued profiles in background", async () => {
     const gaggimate = createMockGaggimate();
     const notion = createMockNotion();
-    notion.getProfilePushData.mockResolvedValue({
+    notion.getProfilePageData.mockResolvedValue({
       profileJson: JSON.stringify({
         label: "Queued Profile",
         temperature: 93,
         phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
       }),
       pushStatus: "Queued",
+      favorite: false,
+      selected: false,
     });
-    notion.getProfilePreferenceState.mockResolvedValue({ favorite: false, selected: false });
 
     const router = createWebhookRouter(gaggimate as any, notion as any);
     const handler = getNotionWebhookHandler(router);

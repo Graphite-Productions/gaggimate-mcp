@@ -66,7 +66,8 @@ async function processWebhookEvent(
   notion: NotionClient,
   pageId: string,
 ): Promise<void> {
-  const { profileJson, pushStatus } = await notion.getProfilePushData(pageId);
+  // Single page fetch covers push status, profile JSON, and preference state.
+  const { profileJson, pushStatus, favorite, selected } = await notion.getProfilePageData(pageId);
   const action = resolveWebhookProfileAction(pushStatus);
 
   if (action === "ignore") {
@@ -79,7 +80,7 @@ async function processWebhookEvent(
   }
 
   if (action === "push_queued") {
-    await pushProfileToGaggiMate(gaggimate, notion, pageId, profileJson);
+    await pushProfileToGaggiMate(gaggimate, notion, pageId, profileJson, { favorite, selected });
     return;
   }
 
@@ -90,7 +91,7 @@ async function processWebhookEvent(
     return;
   }
 
-  await syncFavoriteAndSelectedFromNotion(gaggimate, notion, pageId, profileId);
+  await syncFavoriteAndSelectedFromNotion(gaggimate, notion, pageId, profileId, { favorite, selected });
 }
 
 export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionClient): Router {

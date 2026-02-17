@@ -231,31 +231,43 @@ export class NotionClient {
     });
   }
 
-  /** Read the Profile JSON property from a profile page */
-  async getProfileJSON(pageId: string): Promise<string | null> {
-    const { profileJson } = await this.getProfilePushData(pageId);
-    return profileJson;
-  }
-
-  /** Read push-relevant data from a profile page */
-  async getProfilePushData(pageId: string): Promise<{ profileJson: string | null; pushStatus: string | null }> {
+  /** Read all webhook-relevant fields from a profile page in a single API call */
+  async getProfilePageData(pageId: string): Promise<{
+    profileJson: string | null;
+    pushStatus: string | null;
+    favorite: boolean;
+    selected: boolean;
+  }> {
     const page = await this.client.pages.retrieve({ page_id: pageId }) as any;
     const profileJson = this.extractRichText(page, "Profile JSON") || null;
     const pushStatusProp = page.properties?.["Push Status"];
     const pushStatus = pushStatusProp?.type === "select" ? pushStatusProp.select?.name || null : null;
-    return { profileJson, pushStatus };
-  }
-
-  /** Read Favorite/Selected checkbox state from a profile page */
-  async getProfilePreferenceState(pageId: string): Promise<{ favorite: boolean; selected: boolean }> {
-    const page = await this.client.pages.retrieve({ page_id: pageId }) as any;
     const favoriteProp = page.properties?.Favorite;
     const selectedProp = page.properties?.Selected;
-
     return {
+      profileJson,
+      pushStatus,
       favorite: favoriteProp?.type === "checkbox" ? Boolean(favoriteProp.checkbox) : false,
       selected: selectedProp?.type === "checkbox" ? Boolean(selectedProp.checkbox) : false,
     };
+  }
+
+  /** Read the Profile JSON property from a profile page */
+  async getProfileJSON(pageId: string): Promise<string | null> {
+    const { profileJson } = await this.getProfilePageData(pageId);
+    return profileJson;
+  }
+
+  /** @deprecated Use getProfilePageData for combined fetch */
+  async getProfilePushData(pageId: string): Promise<{ profileJson: string | null; pushStatus: string | null }> {
+    const { profileJson, pushStatus } = await this.getProfilePageData(pageId);
+    return { profileJson, pushStatus };
+  }
+
+  /** @deprecated Use getProfilePageData for combined fetch */
+  async getProfilePreferenceState(pageId: string): Promise<{ favorite: boolean; selected: boolean }> {
+    const { favorite, selected } = await this.getProfilePageData(pageId);
+    return { favorite, selected };
   }
 
   /** Create a Draft profile page from a device profile (auto-import) */
