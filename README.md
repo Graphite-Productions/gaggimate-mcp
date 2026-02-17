@@ -83,6 +83,7 @@ Three databases, fully interlinked:
 Important for Profiles DB: add `Favorite` (checkbox) and `Selected` (checkbox) properties so device state sync works.
 
 See [`docs/SETUP.md`](docs/SETUP.md) for complete setup instructions including Notion database schemas, environment configuration, and deployment options.
+For a Notion-only copy/paste guide (database schema, relationship model, and AI instructions), see [`docs/NOTION-WORKSPACE-SETUP.md`](docs/NOTION-WORKSPACE-SETUP.md).
 
 See [`docs/PRD.md`](docs/PRD.md) for the full product requirements document.
 

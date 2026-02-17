@@ -38,6 +38,8 @@ ping gaggimate.local
 
 Create three databases in your Notion workspace. The names are flexible, but the property names must match exactly.
 
+If you want a single copy/paste page specifically for Notion setup and AI instructions, use `docs/NOTION-WORKSPACE-SETUP.md`.
+
 ### Beans Database
 
 | Property | Type | Notes |
