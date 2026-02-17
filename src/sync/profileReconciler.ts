@@ -3,6 +3,7 @@ import type { ExistingProfileRecord, NotionClient } from "../notion/client.js";
 
 interface ProfileReconcilerOptions {
   intervalMs: number;
+  deleteEnabled: boolean;
   maxDeletesPerRun: number;
 }
 
@@ -304,6 +305,14 @@ export class ProfileReconciler {
 
     if (this.isUtilityProfile(deviceProfile)) {
       console.log(`Profile ${notionProfile.pageId}: skipping delete for utility profile`);
+      return;
+    }
+
+    if (!this.options.deleteEnabled) {
+      if (!this.deleteLimitWarned) {
+        console.warn("Profile reconciler: delete operations are disabled by configuration");
+        this.deleteLimitWarned = true;
+      }
       return;
     }
 

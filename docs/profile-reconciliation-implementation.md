@@ -137,6 +137,7 @@ File: `.env.example`
 - Replace old profile polling vars with:
   - `PROFILE_RECONCILE_ENABLED=true`
   - `PROFILE_RECONCILE_INTERVAL_MS=30000`
+  - `PROFILE_RECONCILE_DELETE_ENABLED=true`
   - `PROFILE_RECONCILE_DELETE_LIMIT_PER_RUN=3`
 
 ## Test Plan

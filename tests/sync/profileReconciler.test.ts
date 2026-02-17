@@ -54,6 +54,7 @@ function createMockNotion() {
 async function runReconcile(gaggimate: any, notion: any, overrides?: { maxDeletesPerRun?: number }): Promise<void> {
   const reconciler = new ProfileReconciler(gaggimate, notion, {
     intervalMs: 1000,
+    deleteEnabled: true,
     maxDeletesPerRun: overrides?.maxDeletesPerRun ?? 3,
   });
   await (reconciler as any).reconcile();
@@ -531,6 +532,35 @@ describe("ProfileReconciler", () => {
     await runReconcile(gaggimate as any, notion as any, { maxDeletesPerRun: 1 });
 
     expect(gaggimate.deleteProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not delete archived profiles when deletion is disabled", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([{ id: "delete-1", label: "Delete 1", utility: false }]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "archived-disabled",
+          normalizedName: "delete 1",
+          profileId: "delete-1",
+          profileJson: JSON.stringify({ id: "delete-1", label: "Delete 1" }),
+          pushStatus: "Archived",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    const reconciler = new ProfileReconciler(gaggimate as any, notion as any, {
+      intervalMs: 1000,
+      deleteEnabled: false,
+      maxDeletesPerRun: 3,
+    });
+    await (reconciler as any).reconcile();
+
+    expect(gaggimate.deleteProfile).not.toHaveBeenCalled();
   });
 
   it("imports unmatched device profiles as Draft", async () => {

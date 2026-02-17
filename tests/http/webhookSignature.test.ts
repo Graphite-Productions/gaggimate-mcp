@@ -35,4 +35,12 @@ describe("Notion webhook signature helpers", () => {
 
     expect(isValidNotionWebhookSignature(payload, [signature], token)).toBe(true);
   });
+
+  it("rejects multi-value signature headers to avoid ambiguity", () => {
+    const payload = JSON.stringify({ type: "page.changed" });
+    const token = "verification-token";
+    const signature = buildNotionWebhookSignature(payload, token);
+
+    expect(isValidNotionWebhookSignature(payload, [signature, signature], token)).toBe(false);
+  });
 });
