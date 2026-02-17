@@ -136,4 +136,44 @@ describe("NotionClient profile helpers", () => {
     expect(existing.byName.has("archived one")).toBe(false);
     expect(existing.byId.has("archived-id")).toBe(false);
   });
+
+  it("getProfilePageIdByName scans paginated results for normalized name matches", async () => {
+    const { notion, mockClient } = createNotionClient();
+    mockClient.databases.query
+      // Exact title match query (first attempt) returns no match.
+      .mockResolvedValueOnce({
+        results: [],
+        has_more: false,
+        next_cursor: null,
+      })
+      // Fallback scan page 1
+      .mockResolvedValueOnce({
+        results: [
+          {
+            id: "page-1",
+            properties: {
+              "Profile Name": titleProperty("Some Other Profile"),
+            },
+          },
+        ],
+        has_more: true,
+        next_cursor: "cursor-2",
+      })
+      // Fallback scan page 2
+      .mockResolvedValueOnce({
+        results: [
+          {
+            id: "target-page",
+            properties: {
+              "Profile Name": titleProperty("Linea Gesha â Extended Bloom Clarity v3"),
+            },
+          },
+        ],
+        has_more: false,
+        next_cursor: null,
+      });
+
+    const pageId = await notion.getProfilePageIdByName("Linea Gesha — Extended Bloom Clarity v3");
+    expect(pageId).toBe("target-page");
+  });
 });

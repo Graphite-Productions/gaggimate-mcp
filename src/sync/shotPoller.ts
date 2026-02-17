@@ -140,14 +140,17 @@ export class ShotPoller {
               });
 
               if (matchingProfile) {
-                const importedPageId = await this.notion.createDraftProfile(matchingProfile);
-                await this.notion.uploadProfileImage(
-                  importedPageId,
-                  matchingProfile.label,
-                  matchingProfile,
-                  JSON.stringify(matchingProfile),
-                );
-                console.log(`Shot ${shotListItem.id}: imported profile "${brewData.profileName}" as Draft`);
+                const profileStillMissing = !(await this.notion.hasProfileByName(brewData.profileName));
+                if (profileStillMissing) {
+                  const importedPageId = await this.notion.createDraftProfile(matchingProfile);
+                  await this.notion.uploadProfileImage(
+                    importedPageId,
+                    matchingProfile.label,
+                    matchingProfile,
+                    JSON.stringify(matchingProfile),
+                  );
+                  console.log(`Shot ${shotListItem.id}: imported profile "${brewData.profileName}" as Draft`);
+                }
               }
             }
           }

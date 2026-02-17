@@ -470,18 +470,24 @@ export class NotionClient {
       return exactMatch.results[0].id;
     }
 
-    // Fallback: scan profile names to allow case/spacing variations.
-    const response = await this.client.databases.query({
-      database_id: this.config.profilesDbId,
-      page_size: 100,
-    });
+    // Fallback: scan profile names to allow case/spacing/encoding variations.
+    let cursor: string | undefined;
+    do {
+      const response = await this.client.databases.query({
+        database_id: this.config.profilesDbId,
+        start_cursor: cursor,
+        page_size: 100,
+      });
 
-    for (const page of response.results as any[]) {
-      const candidateName = this.normalizeProfileName(this.extractTitle(page));
-      if (candidateName === requestedName) {
-        return page.id;
+      for (const page of response.results as any[]) {
+        const candidateName = this.normalizeProfileName(this.extractTitle(page));
+        if (candidateName === requestedName) {
+          return page.id;
+        }
       }
-    }
+
+      cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
+    } while (cursor);
 
     return null;
   }
