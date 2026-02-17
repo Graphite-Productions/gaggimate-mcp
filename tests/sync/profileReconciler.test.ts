@@ -238,6 +238,7 @@ describe("ProfileReconciler", () => {
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
     expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-id", true);
     expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-id");
+    expect(notion.updateProfileJson).not.toHaveBeenCalled();
 
     const saveOrder = gaggimate.saveProfile.mock.invocationCallOrder[0];
     const favoriteOrder = gaggimate.favoriteProfile.mock.invocationCallOrder[0];
