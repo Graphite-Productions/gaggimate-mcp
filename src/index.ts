@@ -15,6 +15,7 @@ async function main() {
     console.log(`  Profile reconcile interval: ${config.sync.profileReconcileIntervalMs}ms`);
     console.log(`  Profile delete enabled: ${config.sync.profileReconcileDeleteEnabled}`);
     console.log(`  Profile delete limit per reconcile: ${config.sync.profileReconcileDeleteLimitPerRun}`);
+    console.log(`  Profile save limit per reconcile: ${config.sync.profileReconcileSaveLimitPerRun}`);
   }
   console.log(`  Brew title time zone: ${config.time.brewTitleTimeZone}`);
 
@@ -44,6 +45,7 @@ async function main() {
       intervalMs: config.sync.profileReconcileIntervalMs,
       deleteEnabled: config.sync.profileReconcileDeleteEnabled,
       maxDeletesPerRun: config.sync.profileReconcileDeleteLimitPerRun,
+      maxSavesPerRun: config.sync.profileReconcileSaveLimitPerRun,
     });
     profileReconciler.start();
   }

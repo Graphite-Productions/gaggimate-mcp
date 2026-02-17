@@ -130,6 +130,7 @@ User/AI-managed fields in `Profiles`:
 - Archived non-utility profiles are deleted from device.
 - Destructive delete behavior can be disabled with `PROFILE_RECONCILE_DELETE_ENABLED=false`.
 - Deletes are rate-limited per cycle by `PROFILE_RECONCILE_DELETE_LIMIT_PER_RUN` (default `3`) as a safety guard.
+- Push/re-push operations are rate-limited per cycle by `PROFILE_RECONCILE_SAVE_LIMIT_PER_RUN` (default `5`) to avoid device overload.
 - Utility profiles are never auto-deleted.
 
 ## 3. Basic Instructions for the Notion AI Agent

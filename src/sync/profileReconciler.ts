@@ -5,6 +5,7 @@ interface ProfileReconcilerOptions {
   intervalMs: number;
   deleteEnabled: boolean;
   maxDeletesPerRun: number;
+  maxSavesPerRun: number;
 }
 
 export class ProfileReconciler {
@@ -15,6 +16,8 @@ export class ProfileReconciler {
   private running = false;
   private deletedThisRun = 0;
   private deleteLimitWarned = false;
+  private savedThisRun = 0;
+  private saveLimitWarned = false;
 
   constructor(gaggimate: GaggiMateClient, notion: NotionClient, options: ProfileReconcilerOptions) {
     this.gaggimate = gaggimate;
@@ -42,6 +45,8 @@ export class ProfileReconciler {
     this.running = true;
     this.deletedThisRun = 0;
     this.deleteLimitWarned = false;
+    this.savedThisRun = 0;
+    this.saveLimitWarned = false;
 
     try {
       let deviceProfiles: any[];
@@ -198,7 +203,12 @@ export class ProfileReconciler {
     }
 
     try {
+      if (!this.canPerformSaveOperation()) {
+        return;
+      }
+
       const savedResult = await this.gaggimate.saveProfile(parsedProfile);
+      this.savedThisRun += 1;
       const savedId = this.notion.extractProfileId(savedResult) || this.notion.extractProfileId(parsedProfile);
       if (savedId && parsedProfile.id !== savedId) {
         parsedProfile.id = savedId;
@@ -242,8 +252,13 @@ export class ProfileReconciler {
 
       notionProfileJson.id = deviceId;
       try {
+        if (!this.canPerformSaveOperation()) {
+          return;
+        }
+
         await this.gaggimate.saveProfile(notionProfileJson);
-        await this.applyFavoriteAndSelectedSync(notionProfile, notionProfileJson);
+        this.savedThisRun += 1;
+        await this.applyFavoriteAndSelectedSync(notionProfile, notionProfileJson, { forceSelect: notionProfile.selected });
         const now = new Date().toISOString();
         await this.notion.updatePushStatus(notionProfile.pageId, "Pushed", now, true);
         console.log(`Profile ${notionProfile.pageId}: re-pushed missing device profile`);
@@ -265,7 +280,12 @@ export class ProfileReconciler {
     if (needsRepush) {
       notionProfileJson.id = deviceId;
       try {
+        if (!this.canPerformSaveOperation()) {
+          return;
+        }
+
         await this.gaggimate.saveProfile(notionProfileJson);
+        this.savedThisRun += 1;
         console.log(`Profile ${notionProfile.pageId}: reconciled device profile from Notion JSON`);
       } catch (error) {
         console.error(`Profile ${notionProfile.pageId}: failed to reconcile profile drift:`, error);
@@ -338,7 +358,11 @@ export class ProfileReconciler {
     }
   }
 
-  private async applyFavoriteAndSelectedSync(notionProfile: ExistingProfileRecord, profileOnDevice: any): Promise<void> {
+  private async applyFavoriteAndSelectedSync(
+    notionProfile: ExistingProfileRecord,
+    profileOnDevice: any,
+    options?: { forceSelect?: boolean },
+  ): Promise<void> {
     const deviceId = this.notion.extractProfileId(profileOnDevice) || notionProfile.profileId;
     if (!deviceId) {
       return;
@@ -353,7 +377,8 @@ export class ProfileReconciler {
       }
     }
 
-    if (notionProfile.selected) {
+    const deviceSelected = Boolean(profileOnDevice?.selected);
+    if (notionProfile.selected && (options?.forceSelect || !deviceSelected)) {
       try {
         await this.gaggimate.selectProfile(deviceId);
       } catch (error) {
@@ -473,6 +498,20 @@ export class ProfileReconciler {
       return true;
     }
 
+    if (typeof desired === "number" && typeof actual === "string") {
+      const parsed = Number(actual);
+      if (Number.isFinite(parsed)) {
+        return desired === parsed;
+      }
+    }
+
+    if (typeof desired === "boolean" && typeof actual === "string") {
+      const normalized = actual.trim().toLowerCase();
+      if (normalized === "true" || normalized === "false") {
+        return desired === (normalized === "true");
+      }
+    }
+
     return desired === actual;
   }
 
@@ -580,5 +619,19 @@ export class ProfileReconciler {
     const name = error.name.toLowerCase();
     const message = error.message.toLowerCase();
     return name.includes("timeout") || name.includes("abort") || message.includes("timeout") || message.includes("aborted");
+  }
+
+  private canPerformSaveOperation(): boolean {
+    const maxSavesPerRun = Math.max(0, Math.floor(this.options.maxSavesPerRun));
+    if (this.savedThisRun >= maxSavesPerRun) {
+      if (!this.saveLimitWarned) {
+        console.error(
+          `Profile reconciler: save limit reached (${maxSavesPerRun} per cycle), skipping additional pushes/re-pushes`,
+        );
+        this.saveLimitWarned = true;
+      }
+      return false;
+    }
+    return true;
   }
 }

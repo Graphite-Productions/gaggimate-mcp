@@ -51,11 +51,16 @@ function createMockNotion() {
   };
 }
 
-async function runReconcile(gaggimate: any, notion: any, overrides?: { maxDeletesPerRun?: number }): Promise<void> {
+async function runReconcile(
+  gaggimate: any,
+  notion: any,
+  overrides?: { maxDeletesPerRun?: number; maxSavesPerRun?: number },
+): Promise<void> {
   const reconciler = new ProfileReconciler(gaggimate, notion, {
     intervalMs: 1000,
     deleteEnabled: true,
     maxDeletesPerRun: overrides?.maxDeletesPerRun ?? 3,
+    maxSavesPerRun: overrides?.maxSavesPerRun ?? 5,
   });
   await (reconciler as any).reconcile();
 }
@@ -293,6 +298,46 @@ describe("ProfileReconciler", () => {
     expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-id");
   });
 
+  it("does not re-select when device is already selected", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      {
+        id: "device-id",
+        label: "Already Selected",
+        favorite: true,
+        selected: true,
+        temperature: 93,
+        phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+      },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "already-selected-page",
+          normalizedName: "already selected",
+          profileId: "device-id",
+          profileJson: JSON.stringify({
+            id: "device-id",
+            label: "Already Selected",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          favorite: true,
+          selected: true,
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.selectProfile).not.toHaveBeenCalled();
+  });
+
   it("does not re-push when only object key order differs", async () => {
     const gaggimate = createMockGaggimate();
     gaggimate.fetchProfiles.mockResolvedValue([
@@ -328,6 +373,42 @@ describe("ProfileReconciler", () => {
 
     expect(gaggimate.saveProfile).not.toHaveBeenCalled();
     expect(notion.updatePushStatus).toHaveBeenCalledWith("same-page", "Pushed", undefined, true);
+  });
+
+  it("does not re-push when device numeric fields are string-typed equivalents", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      {
+        id: "typed-id",
+        label: "Typed Profile",
+        temperature: "93",
+        phases: [{ name: "Extraction", phase: "brew", duration: "30" }],
+      },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "typed-page",
+          normalizedName: "typed profile",
+          profileId: "typed-id",
+          profileJson: JSON.stringify({
+            id: "typed-id",
+            label: "Typed Profile",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
   });
 
   it("does not re-push when device label is mojibake variant of Notion label", async () => {
@@ -534,6 +615,65 @@ describe("ProfileReconciler", () => {
     expect(gaggimate.deleteProfile).toHaveBeenCalledTimes(1);
   });
 
+  it("limits save operations per cycle", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      { id: "save-1", label: "Save 1", temperature: 90, phases: [{ name: "Extraction", phase: "brew", duration: 20 }] },
+      { id: "save-2", label: "Save 2", temperature: 90, phases: [{ name: "Extraction", phase: "brew", duration: 20 }] },
+      { id: "save-3", label: "Save 3", temperature: 90, phases: [{ name: "Extraction", phase: "brew", duration: 20 }] },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "save-page-1",
+          normalizedName: "save 1",
+          profileId: "save-1",
+          profileJson: JSON.stringify({
+            id: "save-1",
+            label: "Save 1",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          activeOnMachine: true,
+        }),
+        createProfileRecord({
+          pageId: "save-page-2",
+          normalizedName: "save 2",
+          profileId: "save-2",
+          profileJson: JSON.stringify({
+            id: "save-2",
+            label: "Save 2",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          activeOnMachine: true,
+        }),
+        createProfileRecord({
+          pageId: "save-page-3",
+          normalizedName: "save 3",
+          profileId: "save-3",
+          profileJson: JSON.stringify({
+            id: "save-3",
+            label: "Save 3",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any, { maxSavesPerRun: 1 });
+
+    expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
+  });
+
   it("does not delete archived profiles when deletion is disabled", async () => {
     const gaggimate = createMockGaggimate();
     gaggimate.fetchProfiles.mockResolvedValue([{ id: "delete-1", label: "Delete 1", utility: false }]);
@@ -557,6 +697,7 @@ describe("ProfileReconciler", () => {
       intervalMs: 1000,
       deleteEnabled: false,
       maxDeletesPerRun: 3,
+      maxSavesPerRun: 5,
     });
     await (reconciler as any).reconcile();
 

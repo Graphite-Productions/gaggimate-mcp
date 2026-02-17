@@ -21,6 +21,7 @@ describe("config", () => {
     expect(config.sync.profileReconcileIntervalMs).toBe(30000);
     expect(config.sync.profileReconcileDeleteEnabled).toBe(true);
     expect(config.sync.profileReconcileDeleteLimitPerRun).toBe(3);
+    expect(config.sync.profileReconcileSaveLimitPerRun).toBe(5);
   });
 
   it("parses boolean env flags case-insensitively and accepts zero delete limit", async () => {
@@ -32,6 +33,7 @@ describe("config", () => {
       process.env.SYNC_INTERVAL_MS = "45000";
       process.env.REQUEST_TIMEOUT = "7000";
       process.env.GAGGIMATE_PROTOCOL = "invalid";
+      process.env.PROFILE_RECONCILE_SAVE_LIMIT_PER_RUN = "2";
 
       vi.resetModules();
       const { config } = await import("../src/config.js");
@@ -39,6 +41,7 @@ describe("config", () => {
       expect(config.sync.profileReconcileEnabled).toBe(false);
       expect(config.sync.profileReconcileDeleteEnabled).toBe(false);
       expect(config.sync.profileReconcileDeleteLimitPerRun).toBe(0);
+      expect(config.sync.profileReconcileSaveLimitPerRun).toBe(2);
       expect(config.sync.intervalMs).toBe(45000);
       expect(config.gaggimate.requestTimeout).toBe(7000);
       expect(config.gaggimate.protocol).toBe("ws");

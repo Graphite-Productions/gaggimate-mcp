@@ -49,6 +49,7 @@ export const config = {
     profileReconcileIntervalMs: parseEnvNumber(process.env.PROFILE_RECONCILE_INTERVAL_MS, 30000),
     profileReconcileDeleteEnabled: parseEnvBoolean(process.env.PROFILE_RECONCILE_DELETE_ENABLED, true),
     profileReconcileDeleteLimitPerRun: parseEnvNumber(process.env.PROFILE_RECONCILE_DELETE_LIMIT_PER_RUN, 3),
+    profileReconcileSaveLimitPerRun: parseEnvNumber(process.env.PROFILE_RECONCILE_SAVE_LIMIT_PER_RUN, 5),
     recentShotLookbackCount: parseEnvNumber(process.env.RECENT_SHOT_LOOKBACK_COUNT, 5),
   },
   time: {
