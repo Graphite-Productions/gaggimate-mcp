@@ -1,10 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { pushProfileToGaggiMate } from "../../src/sync/profilePush.js";
 
-// Minimal mock types
 function createMockGaggiMate() {
   return {
-    updateAIProfile: vi.fn().mockResolvedValue({ success: true }),
     saveProfile: vi.fn().mockResolvedValue({ success: true }),
   };
 }
@@ -12,54 +10,80 @@ function createMockGaggiMate() {
 function createMockNotion() {
   return {
     updatePushStatus: vi.fn().mockResolvedValue(undefined),
+    extractProfileId: vi.fn().mockImplementation((profile: any) => {
+      if (typeof profile?.id === "string" && profile.id.trim()) {
+        return profile.id;
+      }
+      return null;
+    }),
+    updateProfileJson: vi.fn().mockResolvedValue(undefined),
+    getProfileMeta: vi.fn().mockResolvedValue({ name: "Profile", source: null }),
+    findAndArchiveSiblings: vi.fn().mockResolvedValue(0),
   };
 }
 
 describe("pushProfileToGaggiMate", () => {
-  it("pushes valid AI profile and sets status to Pushed", async () => {
+  it("pushes valid profile and sets status to Pushed with Active on Machine", async () => {
     const gaggimate = createMockGaggiMate();
     const notion = createMockNotion();
 
     const profileJson = JSON.stringify({
+      label: "My Profile",
       temperature: 93,
       phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
     });
 
     await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-1", profileJson);
 
-    expect(gaggimate.updateAIProfile).toHaveBeenCalledWith({
-      temperature: 93,
-      phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
-    });
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-1", "Pushed", expect.any(String));
+    expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-1", "Pushed", expect.any(String), true);
   });
 
-  it("pushes named profile using saveProfile", async () => {
+  it("writes back assigned profile ID when save response contains id", async () => {
     const gaggimate = createMockGaggiMate();
+    gaggimate.saveProfile.mockResolvedValue({ id: "device-123" });
     const notion = createMockNotion();
 
     const profileJson = JSON.stringify({
-      label: "My Custom Profile",
-      type: "pro",
-      temperature: 90,
-      phases: [{ name: "Preinfusion", phase: "preinfusion", duration: 8 }],
+      label: "My Profile",
+      temperature: 93,
+      phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
     });
 
     await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-2", profileJson);
 
-    expect(gaggimate.saveProfile).toHaveBeenCalled();
-    expect(gaggimate.updateAIProfile).not.toHaveBeenCalled();
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-2", "Pushed", expect.any(String));
+    expect(notion.updateProfileJson).toHaveBeenCalledTimes(1);
+    expect(notion.updateProfileJson).toHaveBeenCalledWith(
+      "page-2",
+      expect.stringContaining("\"id\":\"device-123\""),
+    );
+  });
+
+  it("does not write back ID when profile already has id", async () => {
+    const gaggimate = createMockGaggiMate();
+    gaggimate.saveProfile.mockResolvedValue({ id: "device-123" });
+    const notion = createMockNotion();
+
+    const profileJson = JSON.stringify({
+      id: "already-present",
+      label: "My Profile",
+      temperature: 93,
+      phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+    });
+
+    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-3", profileJson);
+
+    expect(notion.updateProfileJson).not.toHaveBeenCalled();
   });
 
   it("rejects invalid JSON and sets status to Failed", async () => {
     const gaggimate = createMockGaggiMate();
     const notion = createMockNotion();
 
-    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-3", "not json {{{");
+    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-4", "not json {{{");
 
-    expect(gaggimate.updateAIProfile).not.toHaveBeenCalled();
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-3", "Failed");
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-4", "Failed");
   });
 
   it("rejects profile with missing temperature", async () => {
@@ -70,10 +94,10 @@ describe("pushProfileToGaggiMate", () => {
       phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
     });
 
-    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-4", profileJson);
+    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-5", profileJson);
 
-    expect(gaggimate.updateAIProfile).not.toHaveBeenCalled();
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-4", "Failed");
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-5", "Failed");
   });
 
   it("rejects profile with missing phases", async () => {
@@ -82,42 +106,62 @@ describe("pushProfileToGaggiMate", () => {
 
     const profileJson = JSON.stringify({ temperature: 93 });
 
-    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-5", profileJson);
+    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-6", profileJson);
 
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-5", "Failed");
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-6", "Failed");
   });
 
   it("rejects profile with temperature out of range", async () => {
     const gaggimate = createMockGaggiMate();
     const notion = createMockNotion();
 
-    // Too low
     await pushProfileToGaggiMate(
-      gaggimate as any, notion as any, "page-6",
+      gaggimate as any,
+      notion as any,
+      "page-7",
       JSON.stringify({ temperature: 50, phases: [{ name: "X", phase: "brew", duration: 10 }] }),
     );
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-6", "Failed");
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-7", "Failed");
 
-    // Too high
     await pushProfileToGaggiMate(
-      gaggimate as any, notion as any, "page-7",
+      gaggimate as any,
+      notion as any,
+      "page-8",
       JSON.stringify({ temperature: 110, phases: [{ name: "X", phase: "brew", duration: 10 }] }),
     );
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-7", "Failed");
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-8", "Failed");
   });
 
-  it("sets status to Failed when GaggiMate push fails", async () => {
+  it("sets status to Failed when saveProfile fails", async () => {
     const gaggimate = createMockGaggiMate();
-    gaggimate.updateAIProfile.mockRejectedValue(new Error("Connection refused"));
+    gaggimate.saveProfile.mockRejectedValue(new Error("Connection refused"));
     const notion = createMockNotion();
 
     const profileJson = JSON.stringify({
+      label: "My Profile",
       temperature: 93,
       phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
     });
 
-    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-8", profileJson);
+    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-9", profileJson);
 
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-8", "Failed");
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-9", "Failed");
+  });
+
+  it("archives siblings for AI-generated profiles", async () => {
+    const gaggimate = createMockGaggiMate();
+    const notion = createMockNotion();
+    notion.getProfileMeta.mockResolvedValue({ name: "AI Profile v2", source: "AI-Generated" });
+
+    const profileJson = JSON.stringify({
+      label: "AI Profile v2",
+      temperature: 93,
+      phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+    });
+
+    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-10", profileJson);
+
+    expect(notion.findAndArchiveSiblings).toHaveBeenCalledWith("page-10", "AI Profile v2", "AI-Generated");
   });
 });

@@ -264,7 +264,7 @@ export class ProfileReconciler {
       }
     }
 
-    await this.applyFavoriteAndSelectedSync(notionProfile, notionProfileJson);
+    await this.applyFavoriteAndSelectedSync(notionProfile, deviceProfile);
 
     if (notionProfile.activeOnMachine !== true) {
       await this.notion.updatePushStatus(notionProfile.pageId, "Pushed", undefined, true);

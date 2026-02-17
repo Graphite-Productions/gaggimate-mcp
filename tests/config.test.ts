@@ -17,8 +17,7 @@ describe("config", () => {
     expect(config.gaggimate.requestTimeout).toBe(5000);
     expect(config.http.port).toBe(3000);
     expect(config.sync.intervalMs).toBe(30000);
-    expect(config.sync.profilePollIntervalMs).toBe(3000);
-    expect(config.sync.profileImportEnabled).toBe(true);
-    expect(config.sync.profileImportIntervalMs).toBe(60000);
+    expect(config.sync.profileReconcileEnabled).toBe(true);
+    expect(config.sync.profileReconcileIntervalMs).toBe(30000);
   });
 });

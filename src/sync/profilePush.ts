@@ -3,7 +3,7 @@ import type { NotionClient } from "../notion/client.js";
 
 /**
  * Parse and validate Profile JSON, push to GaggiMate, update Notion status.
- * Used by both webhook handler and profile poller.
+ * Used by webhook-driven profile pushes.
  */
 export async function pushProfileToGaggiMate(
   gaggimate: GaggiMateClient,
