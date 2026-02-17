@@ -326,6 +326,42 @@ describe("ProfileReconciler", () => {
     expect(notion.updatePushStatus).toHaveBeenCalledWith("same-page", "Pushed", undefined, true);
   });
 
+  it("does not re-push when device label is mojibake variant of Notion label", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      {
+        id: "label-id",
+        label: "Linea Gesha â Extended Bloom Clarity v3",
+        temperature: 93,
+        phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+      },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "label-page",
+          normalizedName: "linea gesha — extended bloom clarity v3",
+          profileId: "label-id",
+          profileJson: JSON.stringify({
+            id: "label-id",
+            label: "Linea Gesha — Extended Bloom Clarity v3",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+  });
+
   it("deletes archived non-utility profiles and marks inactive", async () => {
     const gaggimate = createMockGaggimate();
     gaggimate.fetchProfiles.mockResolvedValue([{ id: "archived-id", label: "Custom Profile", utility: false }]);

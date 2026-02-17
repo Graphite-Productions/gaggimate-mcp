@@ -409,6 +409,9 @@ export class ProfileReconciler {
     if (Array.isArray(value)) {
       return value.map((entry) => this.normalizeForCompare(entry));
     }
+    if (typeof value === "string") {
+      return this.normalizeTextForCompare(value);
+    }
     if (!value || typeof value !== "object") {
       return value;
     }
@@ -455,6 +458,35 @@ export class ProfileReconciler {
     }
 
     return desired === actual;
+  }
+
+  private normalizeTextForCompare(value: string): string {
+    const repaired = this.repairMojibake(value);
+    return repaired
+      .replace(/[\u2010-\u2015\u2212]/g, "-")
+      .replace(/\u00A0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Repairs common UTF-8 -> Latin-1 mojibake so comparison logic
+   * does not churn when firmware/UI round-trips mangled text.
+   */
+  private repairMojibake(value: string): string {
+    if (!/(Ã.|â[\u0080-\u00BF])/u.test(value)) {
+      return value;
+    }
+
+    try {
+      const repaired = Buffer.from(value, "latin1").toString("utf8");
+      if (!repaired || repaired.includes("\uFFFD")) {
+        return value;
+      }
+      return repaired;
+    } catch {
+      return value;
+    }
   }
 
   private findConflictingManagedIds(records: ExistingProfileRecord[]): Set<string> {
