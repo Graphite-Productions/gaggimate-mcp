@@ -4,7 +4,7 @@
 A Node.js bridge service (Docker on TrueNAS) that sits between a GaggiMate espresso machine and Notion.
 Two data flows:
 1. **Shots out:** Polls GaggiMate for new shots, auto-logs to Notion Brews DB
-2. **Profiles in:** Notion webhook (or poll fallback) detects queued profiles, pushes to GaggiMate
+2. **Profiles in:** Reconciles Notion profile state to GaggiMate and handles queued pushes from webhook events
 
 ## Project Structure
 ```
@@ -24,8 +24,8 @@ src/
     routes/webhook.ts   — POST /webhook/notion
   sync/
     shotPoller.ts       — Background loop: GaggiMate → Notion
-    profilePoller.ts    — Fallback polling: Notion → GaggiMate
-    profilePush.ts      — Shared profile push logic (webhook + poller)
+    profileReconciler.ts — Background loop: Notion ↔ GaggiMate profile reconciliation
+    profilePush.ts      — Shared profile push logic (webhook + reconciler)
     state.ts            — Sync state persistence (JSON file)
   parsers/
     binaryIndex.ts      — Parses index.bin shot history (from upstream)
@@ -48,10 +48,12 @@ docker compose up      # Run with Docker
 - GaggiMate API: WebSocket for profiles/notes, HTTP for shot binary files
 - Notion is the entire UI — no separate frontend
 - Sync state persists to `/app/data/sync-state.json` in Docker
+- Profile management is driven by `ProfileReconciler` status semantics (`Draft`, `Queued`, `Pushed`, `Archived`, `Failed`)
 
 ## Important Conventions
 - Shot dedup key: `Activity ID` property in Notion Brews DB = GaggiMate shot ID
 - Profile push: validates temperature 60-100°C, requires phases array
+- Profile saves normalize phase defaults before send (`valve`, `pump.target`, `pump.pressure`, `pump.flow`)
 - Per-shot failure isolation — one bad shot doesn't stop the poller
 - All Notion writes are system-owned fields only; user fields never overwritten
 

@@ -35,6 +35,21 @@ If any validation check fails:
 - Set `Push Status = Failed`
 - Skip device operations for that profile in that cycle
 
+## Profile Normalization Before Save
+Before calling GaggiMate `saveProfile`, the bridge normalizes each phase so device payloads are schema-compatible even when Notion JSON is sparse.
+
+Per-phase defaults:
+- `valve`: defaults to `1` when missing/invalid.
+- `pump.target`: defaults to `"pressure"` when missing/invalid.
+- `pump.pressure`: defaults to `9` when missing/invalid.
+- `pump.flow`: defaults to `0` when missing/invalid.
+- `phase`: defaults to `"brew"` when missing/invalid.
+- `temperature`: defaults to profile `temperature` when missing/invalid.
+
+This normalization runs for both:
+- Webhook push path (`pushProfileToGaggiMate`)
+- Reconciler save/re-push path (`ProfileReconciler`)
+
 ## Reconciliation Rules
 
 ### `Queued`
@@ -108,9 +123,10 @@ Additional writeback:
 1. Queued valid JSON pushes and sets `Pushed`.
 2. Queued invalid JSON sets `Failed`.
 3. Queued invalid temperature/phases sets `Failed`.
-4. Newly pushed profile writes back returned machine `id`.
-5. Pushed + missing on device re-pushes from Notion.
-6. Pushed + drift re-pushes Notion JSON and then syncs `Favorite`/`Selected`.
-7. Archived non-utility profile deletes from device.
-8. Archived utility profile is not deleted.
-9. Unmatched device profile imports as `Draft`.
+4. Save path normalizes missing phase valve/pump defaults before device write.
+5. Newly pushed profile writes back returned machine `id`.
+6. Pushed + missing on device re-pushes from Notion.
+7. Pushed + drift re-pushes Notion JSON and then syncs `Favorite`/`Selected`.
+8. Archived non-utility profile deletes from device.
+9. Archived utility profile is not deleted.
+10. Unmatched device profile imports as `Draft`.

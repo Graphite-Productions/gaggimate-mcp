@@ -9,6 +9,7 @@ Forked from [Matvey-Kuk/gaggimate-mcp](https://github.com/Matvey-Kuk/gaggimate-m
 - **Auto-logs shots** — Polls GaggiMate every 30s for new shots, creates entries in your Notion Brews database with brew time, temperature, pressure, weight, and profile name
 - **Pushes profiles** — When you (or Notion AI) set a profile's Push Status to "Queued" in Notion, the service pushes it to the GaggiMate within seconds
 - **Reconciles profiles** — Notion is the source of truth for bridge-managed profiles (`Queued`/`Pushed`/`Archived`), and unmatched machine-only profiles are imported as `Draft`
+- **Normalizes profile payloads** — Before device saves, phase defaults are applied (`valve`, `pump.target`, `pump.pressure`, `pump.flow`) for schema compatibility
 - **Syncs profile state** — `Favorite` and `Selected` checkboxes in Notion sync to GaggiMate for managed profiles
 - **Generates profile charts** — Auto-attaches a pressure/flow chart image to `Profile Image` for imported machine profiles when missing
 - **Backfills brew/profile links** — Automatically links existing brews to profiles when `Activity ID` + shot metadata identifies the profile
