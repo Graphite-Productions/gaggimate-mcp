@@ -13,8 +13,9 @@
 # Optional:
 #   GAGGIMATE_PROTOCOL    - ws (default) or wss
 #   WEBHOOK_SECRET        - Notion webhook secret
-#   POLLING_FALLBACK      - true (default) or false
 #   SYNC_INTERVAL_MS      - Shot polling interval in ms (default: 30000)
+#   PROFILE_RECONCILE_ENABLED - true (default) or false
+#   PROFILE_RECONCILE_INTERVAL_MS - profile reconcile interval in ms (default: 30000)
 #   RECENT_SHOT_LOOKBACK_COUNT - Recent shot rows to re-hydrate each poll (default: 5)
 #   BREW_TITLE_TIMEZONE   - Timezone for brew title AM/PM labels (e.g. America/Los_Angeles)
 

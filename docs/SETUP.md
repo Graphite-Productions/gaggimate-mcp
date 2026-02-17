@@ -223,14 +223,11 @@ NOTION_PROFILES_DB_ID=ghi789...
 # Leave empty if not using webhooks yet
 WEBHOOK_SECRET=
 
-# Polling fallback (recommended: true until webhooks are set up)
-POLLING_FALLBACK=true
-PROFILE_IMPORT_ENABLED=true
-PROFILE_IMPORT_INTERVAL_MS=60000
-RECENT_SHOT_LOOKBACK_COUNT=5
-
 # Defaults are fine for most setups
 SYNC_INTERVAL_MS=30000
+PROFILE_RECONCILE_ENABLED=true
+PROFILE_RECONCILE_INTERVAL_MS=30000
+RECENT_SHOT_LOOKBACK_COUNT=5
 HTTP_PORT=3000
 BREW_TITLE_TIMEZONE=America/Los_Angeles
 ```
@@ -304,16 +301,15 @@ Pull an espresso shot on your machine. Within 30 seconds, a new entry should app
    {"temperature":93,"phases":[{"name":"Preinfusion","phase":"preinfusion","duration":10,"pump":{"target":"pressure","pressure":3}},{"name":"Extraction","phase":"brew","duration":30,"pump":{"target":"pressure","pressure":9}}]}
    ```
 3. Set **Push Status** to `Queued`
-4. Within 3 seconds (polling) the status should change to `Pushed`
-5. Check the GaggiMate — an "AI Profile" should appear
+4. Within the next reconcile cycle (default 30s), or immediately via webhook, the status should change to `Pushed`
+5. Check the GaggiMate — the profile should appear or update on device
 
-### 4. Test profile import (GaggiMate → Notion)
+### 4. Test device profile import (GaggiMate → Notion)
 1. Create a new profile on the GaggiMate UI
-2. Pull a shot with that profile (immediate backfill), or wait up to 60 seconds (default import interval)
+2. Wait up to 30 seconds (default reconcile interval), or pull a shot with that profile
 3. Confirm a new page appears in the Notion Profiles DB
-4. Confirm imported profile starts with `Push Status = Pushed`
+4. Confirm imported profile starts with `Push Status = Draft`
 5. Confirm the brew's `Profile` relation links to that profile
-6. Confirm profiles removed from machine are marked `Active on Machine = false` (not deleted)
 
 ---
 

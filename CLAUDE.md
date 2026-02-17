@@ -57,4 +57,4 @@ docker compose up      # Run with Docker
 
 ## Testing
 - `curl http://localhost:3000/health` — health check
-- Set `POLLING_FALLBACK=true` to test profile push without webhooks
+- Set `PROFILE_RECONCILE_ENABLED=true` to keep profile sync active without relying on webhooks

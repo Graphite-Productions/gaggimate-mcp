@@ -8,7 +8,7 @@ Forked from [Matvey-Kuk/gaggimate-mcp](https://github.com/Matvey-Kuk/gaggimate-m
 
 - **Auto-logs shots** — Polls GaggiMate every 30s for new shots, creates entries in your Notion Brews database with brew time, temperature, pressure, weight, and profile name
 - **Pushes profiles** — When you (or Notion AI) set a profile's Push Status to "Queued" in Notion, the service pushes it to the GaggiMate within seconds
-- **Reconciles profiles from machine** — Imports missing profiles, updates machine-changed profiles in Notion, marks machine-present as `Pushed`, marks machine-missing as `Active on Machine = false`, and never deletes Notion history
+- **Reconciles profiles** — Notion is the source of truth for bridge-managed profiles (`Queued`/`Pushed`/`Archived`), and unmatched machine-only profiles are imported as `Draft`
 - **Generates profile charts** — Auto-attaches a pressure/flow chart image to `Profile Image` for imported machine profiles when missing
 - **Backfills brew/profile links** — Automatically links existing brews to profiles when `Activity ID` + shot metadata identifies the profile
 - **Survives firmware updates** — Shot history on the ESP32 gets wiped by OTA updates; Notion is the permanent record
@@ -54,12 +54,10 @@ Copy `.env.example` to `.env` and fill in your values. Never commit `.env` — i
 | `NOTION_BREWS_DB_ID` | Notion Brews database ID | required |
 | `NOTION_PROFILES_DB_ID` | Notion Profiles database ID | required |
 | `SYNC_INTERVAL_MS` | Shot polling interval (ms) | `30000` |
+| `PROFILE_RECONCILE_ENABLED` | Enable profile reconciliation loop | `true` |
+| `PROFILE_RECONCILE_INTERVAL_MS` | Profile reconcile interval (ms) | `30000` |
 | `RECENT_SHOT_LOOKBACK_COUNT` | Number of recent shots to re-hydrate/update each poll | `5` |
 | `BREW_TITLE_TIMEZONE` | Timezone used for brew title AM/PM labels | `America/Los_Angeles` |
-| `POLLING_FALLBACK` | Poll Notion for queued profiles | `true` |
-| `PROFILE_POLL_INTERVAL_MS` | Queued profile poll interval (ms) | `3000` |
-| `PROFILE_IMPORT_ENABLED` | Import profiles from GaggiMate | `true` |
-| `PROFILE_IMPORT_INTERVAL_MS` | Profile import polling interval (ms) | `60000` |
 | `WEBHOOK_SECRET` | Notion webhook signature verification | optional |
 
 ## Security
