@@ -100,6 +100,21 @@ describe("pushProfileToGaggiMate", () => {
     expect(notion.updatePushStatus).toHaveBeenCalledWith("page-5", "Failed");
   });
 
+  it("rejects profile with non-numeric temperature", async () => {
+    const gaggimate = createMockGaggiMate();
+    const notion = createMockNotion();
+
+    const profileJson = JSON.stringify({
+      temperature: "93",
+      phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+    });
+
+    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-5b", profileJson);
+
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-5b", "Failed");
+  });
+
   it("rejects profile with missing phases", async () => {
     const gaggimate = createMockGaggiMate();
     const notion = createMockNotion();

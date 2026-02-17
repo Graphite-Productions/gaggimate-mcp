@@ -21,7 +21,7 @@ export async function pushProfileToGaggiMate(
   }
 
   // Validate required fields
-  if (!profile.temperature || !Array.isArray(profile.phases) || profile.phases.length === 0) {
+  if (typeof profile.temperature !== "number" || !Number.isFinite(profile.temperature) || !Array.isArray(profile.phases) || profile.phases.length === 0) {
     console.error(`Profile ${pageId}: missing temperature or phases`);
     await notion.updatePushStatus(pageId, "Failed");
     return;
