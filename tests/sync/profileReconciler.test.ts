@@ -100,6 +100,38 @@ describe("ProfileReconciler", () => {
     expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-page", "Pushed", expect.any(String), true);
   });
 
+  it("syncs favorite and selected immediately after queued push", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.saveProfile.mockResolvedValue({ id: "device-fav" });
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "queued-fav",
+          normalizedName: "favorite profile",
+          profileJson: JSON.stringify({
+            label: "Favorite Profile",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Queued",
+          favorite: true,
+          selected: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
+    // Favorite and selected must be synced in the same reconcile cycle, not deferred.
+    expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-fav", true);
+    expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-fav");
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-fav", "Pushed", expect.any(String), true);
+  });
+
   it("marks queued profile Failed when JSON is invalid", async () => {
     const gaggimate = createMockGaggimate();
     const notion = createMockNotion();

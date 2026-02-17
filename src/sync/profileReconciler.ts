@@ -234,6 +234,9 @@ export class ProfileReconciler {
         matchedDeviceNames.add(normalizedSavedName);
       }
 
+      // Sync favorite/selected immediately after push without waiting for the next cycle.
+      await this.applyFavoriteAndSelectedSync(notionProfile, savedResult, { forceSelect: notionProfile.selected });
+
       const now = new Date().toISOString();
       await this.notion.updatePushStatus(notionProfile.pageId, "Pushed", now, true);
       console.log(`Profile ${notionProfile.pageId}: pushed to device`);
