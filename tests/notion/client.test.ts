@@ -40,6 +40,13 @@ function richTextProperty(value: string) {
 }
 
 describe("NotionClient profile helpers", () => {
+  it("normalizeProfileName repairs mojibake profile labels", () => {
+    const { notion } = createNotionClient();
+
+    const normalized = notion.normalizeProfileName("Linea Gesha â Extended Bloom Clarity v3");
+    expect(normalized).toBe("linea gesha — extended bloom clarity v3");
+  });
+
   it("createDraftProfile creates Draft profile with machine state fields", async () => {
     const { notion, mockClient } = createNotionClient();
     mockClient.pages.create.mockResolvedValue({ id: "new-page-id" });

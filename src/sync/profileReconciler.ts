@@ -67,8 +67,31 @@ export class ProfileReconciler {
 
       const matchedDeviceIds = new Set<string>();
       const matchedDeviceNames = new Set<string>();
+      const conflictingManagedIds = this.findConflictingManagedIds(notionIndex.all);
+      const warnedConflictingIds = new Set<string>();
 
       for (const notionProfile of notionIndex.all) {
+        if (notionProfile.profileId) {
+          matchedDeviceIds.add(notionProfile.profileId);
+        }
+        if (notionProfile.normalizedName) {
+          matchedDeviceNames.add(notionProfile.normalizedName);
+        }
+
+        if (
+          notionProfile.profileId &&
+          conflictingManagedIds.has(notionProfile.profileId) &&
+          this.isManagedStatus(notionProfile.pushStatus)
+        ) {
+          if (!warnedConflictingIds.has(notionProfile.profileId)) {
+            console.warn(
+              `Profile reconciler: conflicting managed records share device id ${notionProfile.profileId}; skipping device operations until resolved in Notion`,
+            );
+            warnedConflictingIds.add(notionProfile.profileId);
+          }
+          continue;
+        }
+
         try {
           await this.processNotionProfile(notionProfile, deviceById, matchedDeviceIds, matchedDeviceNames);
         } catch (error) {
@@ -129,13 +152,6 @@ export class ProfileReconciler {
     matchedDeviceIds: Set<string>,
     matchedDeviceNames: Set<string>,
   ): Promise<void> {
-    if (notionProfile.profileId) {
-      matchedDeviceIds.add(notionProfile.profileId);
-    }
-    if (notionProfile.normalizedName) {
-      matchedDeviceNames.add(notionProfile.normalizedName);
-    }
-
     switch (notionProfile.pushStatus) {
       case "Queued":
         await this.handleQueuedProfile(notionProfile, matchedDeviceIds, matchedDeviceNames);
@@ -384,7 +400,9 @@ export class ProfileReconciler {
   }
 
   private areProfilesEquivalent(first: any, second: any): boolean {
-    return JSON.stringify(this.normalizeForCompare(first)) === JSON.stringify(this.normalizeForCompare(second));
+    const desired = this.normalizeForCompare(first);
+    const actual = this.normalizeForCompare(second);
+    return this.isSubsetMatch(desired, actual);
   }
 
   private normalizeForCompare(value: any): any {
@@ -397,12 +415,73 @@ export class ProfileReconciler {
 
     const sorted: Record<string, any> = {};
     for (const key of Object.keys(value).sort()) {
+      // Favorite/Selected are synced via Notion checkboxes, not Profile JSON.
+      if (key === "favorite" || key === "selected") {
+        continue;
+      }
       const normalizedChild = this.normalizeForCompare(value[key]);
       if (normalizedChild !== undefined) {
         sorted[key] = normalizedChild;
       }
     }
     return sorted;
+  }
+
+  private isSubsetMatch(desired: any, actual: any): boolean {
+    if (Array.isArray(desired)) {
+      if (!Array.isArray(actual) || desired.length !== actual.length) {
+        return false;
+      }
+      for (let i = 0; i < desired.length; i += 1) {
+        if (!this.isSubsetMatch(desired[i], actual[i])) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    if (desired && typeof desired === "object") {
+      if (!actual || typeof actual !== "object") {
+        return false;
+      }
+
+      for (const [key, desiredValue] of Object.entries(desired)) {
+        if (!this.isSubsetMatch(desiredValue, actual[key])) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    return desired === actual;
+  }
+
+  private findConflictingManagedIds(records: ExistingProfileRecord[]): Set<string> {
+    const pagesByDeviceId = new Map<string, Set<string>>();
+
+    for (const record of records) {
+      if (!record.profileId || !this.isManagedStatus(record.pushStatus)) {
+        continue;
+      }
+
+      if (!pagesByDeviceId.has(record.profileId)) {
+        pagesByDeviceId.set(record.profileId, new Set<string>());
+      }
+      pagesByDeviceId.get(record.profileId)!.add(record.pageId);
+    }
+
+    const conflictingIds = new Set<string>();
+    for (const [deviceId, pageIds] of pagesByDeviceId.entries()) {
+      if (pageIds.size > 1) {
+        conflictingIds.add(deviceId);
+      }
+    }
+    return conflictingIds;
+  }
+
+  private isManagedStatus(status: string | null): boolean {
+    return status === "Queued" || status === "Pushed" || status === "Archived";
   }
 
   private parseProfileJson(profileJson: string): any | null {

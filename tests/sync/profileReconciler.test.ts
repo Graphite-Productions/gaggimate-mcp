@@ -247,6 +247,48 @@ describe("ProfileReconciler", () => {
     expect(saveOrder).toBeLessThan(selectOrder);
   });
 
+  it("does not re-push when only favorite and selected differ", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      {
+        id: "device-id",
+        label: "Favorite Sync Profile",
+        favorite: false,
+        selected: false,
+        temperature: 93,
+        phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+      },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "favorite-sync-page",
+          normalizedName: "favorite sync profile",
+          profileId: "device-id",
+          profileJson: JSON.stringify({
+            id: "device-id",
+            label: "Favorite Sync Profile",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          favorite: true,
+          selected: true,
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-id", true);
+    expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-id");
+  });
+
   it("does not re-push when only object key order differs", async () => {
     const gaggimate = createMockGaggimate();
     gaggimate.fetchProfiles.mockResolvedValue([
@@ -428,6 +470,49 @@ describe("ProfileReconciler", () => {
     await runReconcile(gaggimate as any, notion as any);
 
     expect(notion.createDraftProfile).not.toHaveBeenCalled();
+  });
+
+  it("skips device operations when conflicting managed records share same profile id", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([{ id: "shared-id", label: "Shared Profile", utility: false }]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "pushed-row",
+          normalizedName: "shared profile pushed",
+          profileId: "shared-id",
+          profileJson: JSON.stringify({
+            id: "shared-id",
+            label: "Shared Profile",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          activeOnMachine: true,
+        }),
+        createProfileRecord({
+          pageId: "archived-row",
+          normalizedName: "shared profile archived",
+          profileId: "shared-id",
+          profileJson: JSON.stringify({
+            id: "shared-id",
+            label: "Shared Profile",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Archived",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(gaggimate.deleteProfile).not.toHaveBeenCalled();
   });
 
   it("backfills brew-profile relations", async () => {

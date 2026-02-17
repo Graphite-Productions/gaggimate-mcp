@@ -501,7 +501,8 @@ export class NotionClient {
   }
 
   normalizeProfileName(name: string): string {
-    return name.trim().replace(/\s+/g, " ").toLowerCase();
+    const repaired = this.repairMojibake(name);
+    return repaired.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
   /** Strip version suffixes to find sibling profiles (e.g. "AI Espresso v2" → "ai espresso") */
@@ -754,5 +755,25 @@ export class NotionClient {
   private sanitizeFileName(value: string): string {
     const normalized = value.trim().replace(/\s+/g, "-").replace(/[^a-zA-Z0-9\-_]/g, "").toLowerCase();
     return normalized || "profile";
+  }
+
+  /**
+   * Attempt to repair common UTF-8 -> Latin-1 mojibake (e.g. "â" vs "—")
+   * seen in some machine-provided profile names.
+   */
+  private repairMojibake(value: string): string {
+    if (!/(Ã.|â[\u0080-\u00BF])/u.test(value)) {
+      return value;
+    }
+
+    try {
+      const repaired = Buffer.from(value, "latin1").toString("utf8");
+      if (!repaired || repaired.includes("\uFFFD")) {
+        return value;
+      }
+      return repaired;
+    } catch {
+      return value;
+    }
   }
 }
