@@ -208,23 +208,6 @@ export class NotionClient {
 
   // ─── Profiles ─────────────────────────────────────────────
 
-  /** Get all profiles with Push Status = "Queued" */
-  async getQueuedProfiles(): Promise<Array<{ pageId: string; profileName: string; profileJson: string }>> {
-    const response = await this.client.databases.query({
-      database_id: this.config.profilesDbId,
-      filter: {
-        property: "Push Status",
-        select: { equals: "Queued" },
-      },
-    });
-
-    return response.results.map((page: any) => ({
-      pageId: page.id,
-      profileName: this.extractTitle(page),
-      profileJson: this.extractRichText(page, "Profile JSON"),
-    }));
-  }
-
   /** Update the Push Status of a profile page */
   async updatePushStatus(
     pageId: string,
@@ -245,72 +228,6 @@ export class NotionClient {
       page_id: pageId,
       properties,
     });
-  }
-
-  /** Archive a profile: set Push Status = "Archived", Active on Machine = false */
-  async archiveProfile(pageId: string): Promise<void> {
-    await this.client.pages.update({
-      page_id: pageId,
-      properties: {
-        "Push Status": { select: { name: "Archived" } },
-        "Active on Machine": { checkbox: false },
-      },
-    });
-  }
-
-  /**
-   * After pushing a profile, find sibling AI-Generated profiles with the same
-   * base name and archive them. Returns the number of profiles archived.
-   */
-  async findAndArchiveSiblings(
-    pushedPageId: string,
-    profileName: string,
-    source: string,
-  ): Promise<number> {
-    if (source !== "AI-Generated") return 0;
-
-    const baseName = this.profileBaseName(profileName);
-    if (!baseName) return 0;
-
-    // Query AI-Generated profiles
-    const response = await this.client.databases.query({
-      database_id: this.config.profilesDbId,
-      filter: {
-        property: "Source",
-        select: { equals: "AI-Generated" },
-      },
-      page_size: 100,
-    });
-
-    let archived = 0;
-    for (const page of response.results as any[]) {
-      if (page.id === pushedPageId) continue;
-
-      const candidateName = this.extractTitle(page);
-      if (this.profileBaseName(candidateName) !== baseName) continue;
-
-      const pushStatusProp = page.properties?.["Push Status"];
-      const status = pushStatusProp?.type === "select" ? pushStatusProp.select?.name : null;
-      if (status === "Archived") continue;
-
-      await this.archiveProfile(page.id);
-      console.log(`Archived sibling profile "${candidateName}" (${page.id})`);
-      archived += 1;
-    }
-
-    return archived;
-  }
-
-  /** Read profile page metadata needed for archive logic */
-  async getProfileMeta(pageId: string): Promise<{
-    name: string;
-    source: string | null;
-  }> {
-    const page = await this.client.pages.retrieve({ page_id: pageId }) as any;
-    const name = this.extractTitle(page);
-    const sourceProp = page.properties?.["Source"];
-    const source = sourceProp?.type === "select" ? sourceProp.select?.name || null : null;
-    return { name, source };
   }
 
   /** Read the Profile JSON property from a profile page */
@@ -514,16 +431,6 @@ export class NotionClient {
       .trim()
       .replace(/\s+/g, " ")
       .toLowerCase();
-  }
-
-  /** Strip version suffixes to find sibling profiles (e.g. "AI Espresso v2" → "ai espresso") */
-  private profileBaseName(name: string): string {
-    return name
-      .trim()
-      .replace(/\s+/g, " ")
-      .toLowerCase()
-      .replace(/\s*(v\d+|#\d+|version\s*\d+|\(v\d+\))$/i, "")
-      .trim();
   }
 
   async listExistingProfiles(): Promise<ExistingProfilesIndex> {

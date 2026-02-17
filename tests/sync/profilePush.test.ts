@@ -17,8 +17,6 @@ function createMockNotion() {
       return null;
     }),
     updateProfileJson: vi.fn().mockResolvedValue(undefined),
-    getProfileMeta: vi.fn().mockResolvedValue({ name: "Profile", source: null }),
-    findAndArchiveSiblings: vi.fn().mockResolvedValue(0),
   };
 }
 
@@ -175,20 +173,4 @@ describe("pushProfileToGaggiMate", () => {
     expect(notion.updatePushStatus).toHaveBeenCalledWith("page-9", "Failed");
   });
 
-  it("does not auto-archive siblings for AI-generated profiles", async () => {
-    const gaggimate = createMockGaggiMate();
-    const notion = createMockNotion();
-    notion.getProfileMeta.mockResolvedValue({ name: "AI Profile v2", source: "AI-Generated" });
-
-    const profileJson = JSON.stringify({
-      label: "AI Profile v2",
-      temperature: 93,
-      phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
-    });
-
-    await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-10", profileJson);
-
-    expect(notion.findAndArchiveSiblings).not.toHaveBeenCalled();
-    expect(notion.getProfileMeta).not.toHaveBeenCalled();
-  });
 });

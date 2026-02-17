@@ -41,8 +41,6 @@ function createMockNotion() {
     normalizeProfileName: vi.fn().mockImplementation((name: string) => name.trim().replace(/\s+/g, " ").toLowerCase()),
     updatePushStatus: vi.fn().mockResolvedValue(undefined),
     updateProfileJson: vi.fn().mockResolvedValue(undefined),
-    getProfileMeta: vi.fn().mockResolvedValue({ name: "Profile", source: null }),
-    findAndArchiveSiblings: vi.fn().mockResolvedValue(0),
     createDraftProfile: vi.fn().mockResolvedValue("new-page"),
     uploadProfileImage: vi.fn().mockResolvedValue(true),
     listBrewsMissingProfileRelation: vi.fn().mockResolvedValue([]),

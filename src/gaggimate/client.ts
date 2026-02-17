@@ -3,8 +3,7 @@ import { parseBinaryIndex, indexToShotList } from "../parsers/binaryIndex.js";
 import type { ShotListItem } from "../parsers/binaryIndex.js";
 import { parseBinaryShot } from "../parsers/binaryShot.js";
 import type { ShotData } from "../parsers/binaryShot.js";
-import { transformShotForAI } from "../transformers/shotTransformer.js";
-import type { GaggiMateConfig, ProfileData, ProfilePhase } from "./types.js";
+import type { GaggiMateConfig, ProfileData } from "./types.js";
 import { normalizeProfileForGaggiMate } from "./profileNormalization.js";
 
 function generateRequestId(): string {
@@ -165,115 +164,6 @@ export class GaggiMateClient {
                 reject(new Error(`GaggiMate API error: ${response.error}`));
               } else {
                 resolve(response.profile || null);
-              }
-            }
-          }
-        } catch (error) {
-          if (!resolved) {
-            resolved = true;
-            cleanup();
-            reject(new Error(`Failed to parse response: ${error}`));
-          }
-        }
-      });
-
-      ws.on("error", (error) => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`WebSocket error: ${error.message}`));
-        }
-      });
-
-      ws.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          reject(new Error("WebSocket closed unexpectedly"));
-        }
-      });
-    });
-  }
-
-  /** Update or create the AI Profile via WebSocket (two-step: list then save) */
-  async updateAIProfile(profileData: { temperature: number; phases: ProfilePhase[] }): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsUrl);
-      const listRequestId = generateRequestId();
-      const saveRequestId = generateRequestId();
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
-        }
-      }, this.config.requestTimeout);
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: "req:profiles:list", rid: listRequestId }));
-      });
-
-      ws.on("message", (data: WebSocket.Data) => {
-        try {
-          const response = JSON.parse(data.toString());
-
-          if (response.tp === "res:profiles:list" && response.rid === listRequestId) {
-            const profiles = response.profiles || [];
-            const existing = profiles.find((p: any) => p.label === "AI Profile");
-
-            const profileToSave: ProfileData = {
-              ...(existing?.id ? { id: existing.id } : {}),
-              label: "AI Profile",
-              type: "pro",
-              description: "AI-generated espresso profile",
-              temperature: profileData.temperature,
-              favorite: false,
-              selected: false,
-              utility: false,
-              phases: profileData.phases.map((phase) => ({
-                name: phase.name,
-                phase: phase.phase || "brew",
-                valve: 1,
-                duration: phase.duration,
-                temperature: phase.temperature || profileData.temperature,
-                transition: phase.transition || {
-                  type: "linear" as const,
-                  duration: Math.min(phase.duration, 2),
-                  adaptive: true,
-                },
-                pump: phase.pump || {
-                  target: "pressure" as const,
-                  pressure: 9,
-                  flow: 0,
-                },
-                targets: phase.targets || [],
-              })),
-            };
-
-            ws.send(JSON.stringify({ tp: "req:profiles:save", rid: saveRequestId, profile: profileToSave }));
-          }
-
-          if (response.tp === "res:profiles:save" && response.rid === saveRequestId) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              if (response.error) {
-                reject(new Error(`Failed to save AI Profile: ${response.error}`));
-              } else {
-                resolve(response.profile || { success: true });
               }
             }
           }
@@ -656,75 +546,5 @@ export class GaggiMateClient {
       }
       throw error;
     }
-  }
-
-  /** Fetch shot notes via WebSocket (returns null on failure, never throws) */
-  async fetchShotNotes(shotId: string): Promise<any | null> {
-    return new Promise((resolve) => {
-      const ws = new WebSocket(this.wsUrl);
-      const requestId = generateRequestId();
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          resolve(null);
-        }
-      }, this.config.requestTimeout);
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: "req:history:notes:get", rid: requestId, id: shotId }));
-      });
-
-      ws.on("message", (data: WebSocket.Data) => {
-        try {
-          const response = JSON.parse(data.toString());
-          if (response.tp === "res:history:notes:get" && response.rid === requestId) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              resolve(response.notes || null);
-            }
-          }
-        } catch {
-          // Ignore parse errors for other messages
-        }
-      });
-
-      ws.on("error", () => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          resolve(null);
-        }
-      });
-
-      ws.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          resolve(null);
-        }
-      });
-    });
-  }
-
-  /** Fetch shot and transform it to AI-friendly format */
-  async fetchTransformedShot(shotId: string, includeFullCurve = false) {
-    const shot = await this.fetchShot(shotId);
-    if (!shot) return null;
-    return { raw: shot, transformed: transformShotForAI(shot, includeFullCurve) };
   }
 }
