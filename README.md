@@ -60,11 +60,12 @@ Copy `.env.example` to `.env` and fill in your values. Never commit `.env` — i
 | `PROFILE_RECONCILE_INTERVAL_MS` | Profile reconcile interval (ms) | `30000` |
 | `RECENT_SHOT_LOOKBACK_COUNT` | Number of recent shots to re-hydrate/update each poll | `5` |
 | `BREW_TITLE_TIMEZONE` | Timezone used for brew title AM/PM labels | `America/Los_Angeles` |
-| `WEBHOOK_SECRET` | Notion webhook signature verification | optional |
+| `WEBHOOK_SECRET` | Notion webhook signature verification (if unset, unsigned webhook events are accepted) | optional |
 
 ## Security
 
 - **Never commit API keys.** Use `.env` (gitignored) or environment variables. See [Notion's API key best practices](https://developers.notion.com/guides/resources/best-practices-for-handling-api-keys).
+- If webhook endpoint is publicly reachable (for example via Funnel), set `WEBHOOK_SECRET` so webhook signatures are validated.
 - If a key is compromised: revoke it in [Notion integrations](https://www.notion.so/my-integrations), generate a new one, and rotate in all environments.
 
 ## API

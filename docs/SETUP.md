@@ -361,10 +361,12 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 2. Go to **Webhooks** → Create new webhook
 3. Endpoint URL: `https://your-machine.tail12345.ts.net/webhook/notion`
 4. Subscribe to page property changes on the Profiles database
-5. Copy the webhook **verification token** and add it to your `.env` (required for webhook processing):
+5. Optional but recommended: copy the webhook **verification token** and add it to your `.env`:
    ```
    WEBHOOK_SECRET=your_webhook_verification_token_here
    ```
+   - If set, webhook signatures are verified.
+   - If unset, webhook events are accepted unsigned (safest only on trusted/private networks).
 6. Restart the bridge service
 
 **Verify:** Change a profile's Push Status to "Queued" — it should push within ~1 second.

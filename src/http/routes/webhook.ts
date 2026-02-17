@@ -66,24 +66,22 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
-      if (!isWebhookSecretConfigured(config.webhook.secret)) {
-        if (!warnedMissingSecret) {
-          console.warn("Webhook events are ignored because WEBHOOK_SECRET is not configured.");
-          warnedMissingSecret = true;
-        }
-        res.status(202).json({ ok: true, action: "ignored", reason: "webhook secret not configured" });
-        return;
-      }
-
       const rawBody = typeof (req as any).rawBody === "string"
         ? (req as any).rawBody
         : JSON.stringify(req.body ?? {});
-      const signature = req.headers["x-notion-signature"];
-      const trusted = isValidNotionWebhookSignature(rawBody, signature, config.webhook.secret);
-      if (!trusted) {
-        console.warn("Webhook signature mismatch — rejecting");
-        res.status(401).json({ error: "Invalid webhook signature" });
-        return;
+      if (isWebhookSecretConfigured(config.webhook.secret)) {
+        const signature = req.headers["x-notion-signature"];
+        const trusted = isValidNotionWebhookSignature(rawBody, signature, config.webhook.secret);
+        if (!trusted) {
+          console.warn("Webhook signature mismatch — rejecting");
+          res.status(401).json({ error: "Invalid webhook signature" });
+          return;
+        }
+      } else if (!warnedMissingSecret) {
+        console.warn(
+          "WEBHOOK_SECRET is not configured. Accepting unsigned webhook events. Configure WEBHOOK_SECRET when endpoint is public.",
+        );
+        warnedMissingSecret = true;
       }
 
       const payload = req.body;
