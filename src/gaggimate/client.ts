@@ -374,6 +374,221 @@ export class GaggiMateClient {
     });
   }
 
+  /** Delete a profile by ID via WebSocket */
+  async deleteProfile(profileId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(this.wsUrl);
+      const requestId = generateRequestId();
+      let timeoutHandle: NodeJS.Timeout | null = null;
+      let resolved = false;
+
+      const cleanup = () => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
+      };
+
+      timeoutHandle = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
+        }
+      }, this.config.requestTimeout);
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({ tp: "req:profiles:delete", rid: requestId, id: profileId }));
+      });
+
+      ws.on("message", (data: WebSocket.Data) => {
+        try {
+          const response = JSON.parse(data.toString());
+          if (response.tp === "res:profiles:delete" && response.rid === requestId) {
+            if (!resolved) {
+              resolved = true;
+              cleanup();
+              if (response.error) {
+                reject(new Error(`Failed to delete profile: ${response.error}`));
+              } else {
+                resolve();
+              }
+            }
+          }
+        } catch (error) {
+          if (!resolved) {
+            resolved = true;
+            cleanup();
+            reject(new Error(`Failed to parse response: ${error}`));
+          }
+        }
+      });
+
+      ws.on("error", (error) => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(`WebSocket error: ${error.message}`));
+        }
+      });
+
+      ws.on("close", () => {
+        if (!resolved) {
+          resolved = true;
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+          reject(new Error("WebSocket closed unexpectedly"));
+        }
+      });
+    });
+  }
+
+  /** Select a profile by ID via WebSocket */
+  async selectProfile(profileId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(this.wsUrl);
+      const requestId = generateRequestId();
+      let timeoutHandle: NodeJS.Timeout | null = null;
+      let resolved = false;
+
+      const cleanup = () => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
+      };
+
+      timeoutHandle = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
+        }
+      }, this.config.requestTimeout);
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({ tp: "req:profiles:select", rid: requestId, id: profileId }));
+      });
+
+      ws.on("message", (data: WebSocket.Data) => {
+        try {
+          const response = JSON.parse(data.toString());
+          if (response.tp === "res:profiles:select" && response.rid === requestId) {
+            if (!resolved) {
+              resolved = true;
+              cleanup();
+              if (response.error) {
+                reject(new Error(`Failed to select profile: ${response.error}`));
+              } else {
+                resolve();
+              }
+            }
+          }
+        } catch (error) {
+          if (!resolved) {
+            resolved = true;
+            cleanup();
+            reject(new Error(`Failed to parse response: ${error}`));
+          }
+        }
+      });
+
+      ws.on("error", (error) => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(`WebSocket error: ${error.message}`));
+        }
+      });
+
+      ws.on("close", () => {
+        if (!resolved) {
+          resolved = true;
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+          reject(new Error("WebSocket closed unexpectedly"));
+        }
+      });
+    });
+  }
+
+  /** Favorite or unfavorite a profile by ID via WebSocket */
+  async favoriteProfile(profileId: string, favorite: boolean): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(this.wsUrl);
+      const requestId = generateRequestId();
+      const reqType = favorite ? "req:profiles:favorite" : "req:profiles:unfavorite";
+      const resType = favorite ? "res:profiles:favorite" : "res:profiles:unfavorite";
+      let timeoutHandle: NodeJS.Timeout | null = null;
+      let resolved = false;
+
+      const cleanup = () => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
+      };
+
+      timeoutHandle = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
+        }
+      }, this.config.requestTimeout);
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({ tp: reqType, rid: requestId, id: profileId }));
+      });
+
+      ws.on("message", (data: WebSocket.Data) => {
+        try {
+          const response = JSON.parse(data.toString());
+          if (response.tp === resType && response.rid === requestId) {
+            if (!resolved) {
+              resolved = true;
+              cleanup();
+              if (response.error) {
+                reject(new Error(`Failed to ${favorite ? "favorite" : "unfavorite"} profile: ${response.error}`));
+              } else {
+                resolve();
+              }
+            }
+          }
+        } catch (error) {
+          if (!resolved) {
+            resolved = true;
+            cleanup();
+            reject(new Error(`Failed to parse response: ${error}`));
+          }
+        }
+      });
+
+      ws.on("error", (error) => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(`WebSocket error: ${error.message}`));
+        }
+      });
+
+      ws.on("close", () => {
+        if (!resolved) {
+          resolved = true;
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+          reject(new Error("WebSocket closed unexpectedly"));
+        }
+      });
+    });
+  }
+
   /** Fetch shot history index from GaggiMate HTTP API */
   async fetchShotHistory(limit?: number, offset?: number): Promise<ShotListItem[]> {
     try {

@@ -5,7 +5,7 @@ import { renderProfileChartSvg } from "../visualization/profileChart.js";
 import { renderBrewChartSvg } from "../visualization/brewChart.js";
 import type { ShotData } from "../parsers/binaryShot.js";
 
-interface ExistingProfileRecord {
+export interface ExistingProfileRecord {
   pageId: string;
   normalizedName: string;
   profileId: string | null;
@@ -14,9 +14,11 @@ interface ExistingProfileRecord {
   activeOnMachine: boolean | null;
   hasProfileImage: boolean;
   source: string | null;
+  favorite: boolean;
+  selected: boolean;
 }
 
-interface ExistingProfilesIndex {
+export interface ExistingProfilesIndex {
   byName: Map<string, ExistingProfileRecord>;
   byId: Map<string, ExistingProfileRecord>;
   all: ExistingProfileRecord[];
@@ -228,12 +230,16 @@ export class NotionClient {
     pageId: string,
     status: PushStatus,
     timestamp?: string,
+    activeOnMachine?: boolean,
   ): Promise<void> {
     const properties: Record<string, any> = {
       "Push Status": { select: { name: status } },
     };
     if (timestamp) {
       properties["Last Pushed"] = { date: { start: timestamp } };
+    }
+    if (activeOnMachine !== undefined) {
+      properties["Active on Machine"] = { checkbox: activeOnMachine };
     }
     await this.client.pages.update({
       page_id: pageId,
@@ -320,6 +326,66 @@ export class NotionClient {
     const pushStatusProp = page.properties?.["Push Status"];
     const pushStatus = pushStatusProp?.type === "select" ? pushStatusProp.select?.name || null : null;
     return { profileJson, pushStatus };
+  }
+
+  /** Create a Draft profile page from a device profile (auto-import) */
+  async createDraftProfile(profile: any): Promise<string> {
+    const profileName = typeof profile?.label === "string" ? profile.label.trim() : "";
+    if (!profileName) {
+      throw new Error("Cannot create draft profile without a profile label");
+    }
+
+    const description = typeof profile?.description === "string" ? profile.description : "";
+    const mappedType = this.mapProfileType(profile?.type);
+    const mappedSource = this.mapProfileSource(profile);
+    const profileJson = JSON.stringify(profile);
+
+    const createdPage = await this.client.pages.create({
+      parent: { database_id: this.config.profilesDbId },
+      properties: {
+        "Profile Name": {
+          title: [{ text: { content: profileName } }],
+        },
+        Description: {
+          rich_text: this.toRichText(description),
+        },
+        "Profile Type": {
+          select: { name: mappedType },
+        },
+        Source: {
+          select: { name: mappedSource },
+        },
+        "Active on Machine": {
+          checkbox: true,
+        },
+        "Profile JSON": {
+          rich_text: this.toRichText(profileJson),
+        },
+        "Push Status": {
+          select: { name: "Draft" },
+        },
+        Favorite: {
+          checkbox: Boolean(profile?.favorite),
+        },
+        Selected: {
+          checkbox: Boolean(profile?.selected),
+        },
+      },
+    });
+
+    return createdPage.id;
+  }
+
+  /** Update the Profile JSON rich_text property on a profile page */
+  async updateProfileJson(pageId: string, jsonString: string): Promise<void> {
+    await this.client.pages.update({
+      page_id: pageId,
+      properties: {
+        "Profile JSON": {
+          rich_text: this.toRichText(jsonString),
+        },
+      },
+    });
   }
 
   /** Check whether a profile with this name already exists in Notion */
@@ -590,7 +656,7 @@ export class NotionClient {
     return properties;
   }
 
-  private normalizeProfileName(name: string): string {
+  normalizeProfileName(name: string): string {
     return name.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
@@ -604,7 +670,7 @@ export class NotionClient {
       .trim();
   }
 
-  private async listExistingProfiles(): Promise<ExistingProfilesIndex> {
+  async listExistingProfiles(): Promise<ExistingProfilesIndex> {
     const byName = new Map<string, ExistingProfileRecord>();
     const byId = new Map<string, ExistingProfileRecord>();
     const all: ExistingProfileRecord[] = [];
@@ -626,6 +692,8 @@ export class NotionClient {
         const activeOnMachineProp = page.properties?.["Active on Machine"];
         const profileImageProp = page.properties?.["Profile Image"];
         const sourceProp = page.properties?.["Source"];
+        const favoriteProp = page.properties?.Favorite;
+        const selectedProp = page.properties?.Selected;
 
         const record: ExistingProfileRecord = {
           pageId: page.id,
@@ -636,6 +704,8 @@ export class NotionClient {
           activeOnMachine: activeOnMachineProp?.type === "checkbox" ? Boolean(activeOnMachineProp.checkbox) : null,
           hasProfileImage: profileImageProp?.type === "files" ? Array.isArray(profileImageProp.files) && profileImageProp.files.length > 0 : false,
           source: sourceProp?.type === "select" ? sourceProp.select?.name || null : null,
+          favorite: favoriteProp?.type === "checkbox" ? Boolean(favoriteProp.checkbox) : false,
+          selected: selectedProp?.type === "checkbox" ? Boolean(selectedProp.checkbox) : false,
         };
 
         all.push(record);
@@ -674,13 +744,13 @@ export class NotionClient {
     return null;
   }
 
-  private extractProfileId(profile: any): string | null {
+  extractProfileId(profile: any): string | null {
     if (typeof profile?.id !== "string") return null;
     const id = profile.id.trim();
     return id.length > 0 ? id : null;
   }
 
-  private extractProfileIdFromJson(profileJson: string): string | null {
+  extractProfileIdFromJson(profileJson: string): string | null {
     if (!profileJson.trim()) return null;
     try {
       const parsed = JSON.parse(profileJson);
@@ -690,7 +760,7 @@ export class NotionClient {
     }
   }
 
-  private toRichText(value: string): Array<{ text: { content: string } }> {
+  toRichText(value: string): Array<{ text: { content: string } }> {
     // Notion rich_text content has a per-segment limit; split long JSON safely.
     const chunkSize = 1900;
     if (!value) {
@@ -704,7 +774,7 @@ export class NotionClient {
     return chunks;
   }
 
-  private mapProfileType(type: unknown): string {
+  mapProfileType(type: unknown): string {
     const normalized = typeof type === "string" ? type.trim().toLowerCase() : "";
     if (normalized.includes("flat")) return "Flat";
     if (normalized.includes("declin")) return "Declining";
@@ -714,7 +784,7 @@ export class NotionClient {
     return "Custom";
   }
 
-  private mapProfileSource(profile: any): string {
+  mapProfileSource(profile: any): string {
     const label = typeof profile?.label === "string" ? profile.label.toLowerCase() : "";
     if (label === "ai profile") return "AI-Generated";
     if (profile?.utility === true) return "Stock";
@@ -725,7 +795,7 @@ export class NotionClient {
    * Prefer profileJsonForChart when it has transition data (e.g. from Notion AI or manual edit).
    * GaggiMate API may return profiles without transitions; Notion's stored JSON can be more complete.
    */
-  private async uploadProfileImage(pageId: string, profileName: string, profile: any, profileJsonForChart?: string | null): Promise<boolean> {
+  async uploadProfileImage(pageId: string, profileName: string, profile: any, profileJsonForChart?: string | null): Promise<boolean> {
     if (this.imageUploadDisabledReason) {
       return false;
     }
