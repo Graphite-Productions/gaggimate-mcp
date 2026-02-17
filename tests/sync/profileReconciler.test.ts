@@ -90,6 +90,17 @@ describe("ProfileReconciler", () => {
     await runReconcile(gaggimate as any, notion as any);
 
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
+    const queuedPayload = gaggimate.saveProfile.mock.calls[0][0];
+    expect(queuedPayload.phases[0]).toEqual(
+      expect.objectContaining({
+        valve: 1,
+        pump: {
+          target: "pressure",
+          pressure: 9,
+          flow: 0,
+        },
+      }),
+    );
     expect(notion.updateProfileJson).toHaveBeenCalledWith(
       "queued-page",
       expect.stringContaining("\"id\":\"device-123\""),

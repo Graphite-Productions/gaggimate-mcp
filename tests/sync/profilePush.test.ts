@@ -36,6 +36,17 @@ describe("pushProfileToGaggiMate", () => {
     await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-1", profileJson);
 
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
+    const pushedProfile = gaggimate.saveProfile.mock.calls[0][0];
+    expect(pushedProfile.phases[0]).toEqual(
+      expect.objectContaining({
+        valve: 1,
+        pump: {
+          target: "pressure",
+          pressure: 9,
+          flow: 0,
+        },
+      }),
+    );
     expect(notion.updatePushStatus).toHaveBeenCalledWith("page-1", "Pushed", expect.any(String), true);
   });
 

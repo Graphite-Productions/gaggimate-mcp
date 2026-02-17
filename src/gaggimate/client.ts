@@ -5,6 +5,7 @@ import { parseBinaryShot } from "../parsers/binaryShot.js";
 import type { ShotData } from "../parsers/binaryShot.js";
 import { transformShotForAI } from "../transformers/shotTransformer.js";
 import type { GaggiMateConfig, ProfileData, ProfilePhase } from "./types.js";
+import { normalizeProfileForGaggiMate } from "./profileNormalization.js";
 
 function generateRequestId(): string {
   return `bridge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -308,6 +309,7 @@ export class GaggiMateClient {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(this.wsUrl);
       const requestId = generateRequestId();
+      const normalizedProfile = normalizeProfileForGaggiMate(profile);
       let timeoutHandle: NodeJS.Timeout | null = null;
       let resolved = false;
 
@@ -330,7 +332,7 @@ export class GaggiMateClient {
       }, this.config.requestTimeout);
 
       ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: "req:profiles:save", rid: requestId, profile }));
+        ws.send(JSON.stringify({ tp: "req:profiles:save", rid: requestId, profile: normalizedProfile }));
       });
 
       ws.on("message", (data: WebSocket.Data) => {
