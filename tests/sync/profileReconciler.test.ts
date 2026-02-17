@@ -51,12 +51,16 @@ function createMockNotion() {
   };
 }
 
+async function runReconcile(gaggimate: any, notion: any): Promise<void> {
+  const reconciler = new ProfileReconciler(gaggimate, notion, { intervalMs: 1000 });
+  await (reconciler as any).reconcile();
+}
+
 describe("ProfileReconciler", () => {
   it("pushes queued profile and writes back assigned id", async () => {
     const gaggimate = createMockGaggimate();
     gaggimate.saveProfile.mockResolvedValue({ id: "device-123" });
     const notion = createMockNotion();
-
     notion.listExistingProfiles.mockResolvedValue({
       byName: new Map(),
       byId: new Map(),
@@ -74,8 +78,7 @@ describe("ProfileReconciler", () => {
       ],
     });
 
-    const reconciler = new ProfileReconciler(gaggimate as any, notion as any, { intervalMs: 1000 });
-    await (reconciler as any).reconcile();
+    await runReconcile(gaggimate as any, notion as any);
 
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
     expect(notion.updateProfileJson).toHaveBeenCalledWith(
@@ -85,54 +88,115 @@ describe("ProfileReconciler", () => {
     expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-page", "Pushed", expect.any(String), true);
   });
 
-  it("does not delete archived utility profiles", async () => {
+  it("marks queued profile Failed when JSON is invalid", async () => {
     const gaggimate = createMockGaggimate();
-    gaggimate.fetchProfiles.mockResolvedValue([{ id: "flush-id", label: "Flush", utility: true }]);
     const notion = createMockNotion();
-
     notion.listExistingProfiles.mockResolvedValue({
       byName: new Map(),
       byId: new Map(),
       all: [
         createProfileRecord({
-          pageId: "archived-page",
-          normalizedName: "flush",
-          profileId: "flush-id",
-          profileJson: JSON.stringify({ id: "flush-id", label: "Flush", utility: true }),
-          pushStatus: "Archived",
-          activeOnMachine: true,
+          pageId: "queued-bad-json",
+          normalizedName: "broken",
+          profileJson: "{invalid-json",
+          pushStatus: "Queued",
         }),
       ],
     });
 
-    const reconciler = new ProfileReconciler(gaggimate as any, notion as any, { intervalMs: 1000 });
-    await (reconciler as any).reconcile();
+    await runReconcile(gaggimate as any, notion as any);
 
-    expect(gaggimate.deleteProfile).not.toHaveBeenCalled();
-    expect(notion.updatePushStatus).not.toHaveBeenCalledWith("archived-page", "Failed");
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-bad-json", "Failed");
   });
 
-  it("imports unmatched device profiles as drafts", async () => {
+  it("marks queued profile Failed when payload is invalid", async () => {
     const gaggimate = createMockGaggimate();
-    gaggimate.fetchProfiles.mockResolvedValue([
-      {
-        id: "device-only-id",
-        label: "Device Only",
-        temperature: 93,
-        phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
-      },
-    ]);
     const notion = createMockNotion();
-    notion.listExistingProfiles.mockResolvedValue({ byName: new Map(), byId: new Map(), all: [] });
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "queued-invalid",
+          normalizedName: "bad-temp",
+          profileJson: JSON.stringify({
+            label: "Bad Temp",
+            temperature: 40,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Queued",
+        }),
+      ],
+    });
 
-    const reconciler = new ProfileReconciler(gaggimate as any, notion as any, { intervalMs: 1000 });
-    await (reconciler as any).reconcile();
+    await runReconcile(gaggimate as any, notion as any);
 
-    expect(notion.createDraftProfile).toHaveBeenCalledTimes(1);
-    expect(notion.uploadProfileImage).toHaveBeenCalledTimes(1);
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-invalid", "Failed");
   });
 
-  it("reconciles pushed profile drift before favorite/selected sync", async () => {
+  it("re-pushes pushed profile when it is missing on device", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "missing-on-device",
+          normalizedName: "missing profile",
+          profileId: "profile-id",
+          profileJson: JSON.stringify({
+            label: "Missing Profile",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Pushed",
+          activeOnMachine: false,
+          favorite: true,
+          selected: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
+    expect(gaggimate.saveProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "profile-id", label: "Missing Profile" }),
+    );
+    expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("profile-id", true);
+    expect(gaggimate.selectProfile).toHaveBeenCalledWith("profile-id");
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("missing-on-device", "Pushed", expect.any(String), true);
+  });
+
+  it("marks pushed profile Failed when missing on device and Notion JSON is invalid", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "pushed-invalid-json",
+          normalizedName: "bad",
+          profileId: "device-id",
+          profileJson: "{bad",
+          pushStatus: "Pushed",
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("pushed-invalid-json", "Failed");
+  });
+
+  it("reconciles pushed profile drift before favorite and selected sync", async () => {
     const gaggimate = createMockGaggimate();
     gaggimate.fetchProfiles.mockResolvedValue([
       {
@@ -169,8 +233,7 @@ describe("ProfileReconciler", () => {
       ],
     });
 
-    const reconciler = new ProfileReconciler(gaggimate as any, notion as any, { intervalMs: 1000 });
-    await (reconciler as any).reconcile();
+    await runReconcile(gaggimate as any, notion as any);
 
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
     expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-id", true);
@@ -181,5 +244,215 @@ describe("ProfileReconciler", () => {
     const selectOrder = gaggimate.selectProfile.mock.invocationCallOrder[0];
     expect(saveOrder).toBeLessThan(favoriteOrder);
     expect(saveOrder).toBeLessThan(selectOrder);
+  });
+
+  it("does not re-push when only object key order differs", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      {
+        id: "same-id",
+        label: "Same Profile",
+        temperature: 93,
+        phases: [{ phase: "brew", duration: 30, name: "Extraction" }],
+      },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "same-page",
+          normalizedName: "same profile",
+          profileId: "same-id",
+          profileJson: JSON.stringify({
+            label: "Same Profile",
+            phases: [{ name: "Extraction", duration: 30, phase: "brew" }],
+            temperature: 93,
+            id: "same-id",
+          }),
+          pushStatus: "Pushed",
+          activeOnMachine: false,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("same-page", "Pushed", undefined, true);
+  });
+
+  it("deletes archived non-utility profiles and marks inactive", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([{ id: "archived-id", label: "Custom Profile", utility: false }]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "archived-page",
+          normalizedName: "custom profile",
+          profileId: "archived-id",
+          profileJson: JSON.stringify({ id: "archived-id", label: "Custom Profile" }),
+          pushStatus: "Archived",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.deleteProfile).toHaveBeenCalledWith("archived-id");
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("archived-page", "Archived", undefined, false);
+  });
+
+  it("does not delete archived utility profiles", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([{ id: "flush-id", label: "Flush", utility: true }]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "archived-page",
+          normalizedName: "flush",
+          profileId: "flush-id",
+          profileJson: JSON.stringify({ id: "flush-id", label: "Flush", utility: true }),
+          pushStatus: "Archived",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.deleteProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).not.toHaveBeenCalledWith("archived-page", "Failed");
+  });
+
+  it("marks archived profile inactive when already missing on device", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "archived-missing",
+          normalizedName: "gone",
+          profileId: "gone-id",
+          profileJson: JSON.stringify({ id: "gone-id", label: "Gone" }),
+          pushStatus: "Archived",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.deleteProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("archived-missing", "Archived", undefined, false);
+  });
+
+  it("marks profile Failed when archived delete operation fails", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([{ id: "bad-delete-id", label: "Delete Me", utility: false }]);
+    gaggimate.deleteProfile.mockRejectedValue(new Error("delete failed"));
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "archived-fail",
+          normalizedName: "delete me",
+          profileId: "bad-delete-id",
+          profileJson: JSON.stringify({ id: "bad-delete-id", label: "Delete Me" }),
+          pushStatus: "Archived",
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("archived-fail", "Failed");
+  });
+
+  it("imports unmatched device profiles as Draft", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      {
+        id: "device-only-id",
+        label: "Device Only",
+        temperature: 93,
+        phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+      },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({ byName: new Map(), byId: new Map(), all: [] });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(notion.createDraftProfile).toHaveBeenCalledTimes(1);
+    expect(notion.uploadProfileImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not import duplicate Draft when Notion already has same profile name", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      {
+        id: "device-only-id",
+        label: "  Duplicate Name  ",
+        temperature: 93,
+        phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+      },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "existing-draft",
+          normalizedName: "duplicate name",
+          pushStatus: "Draft",
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(notion.createDraftProfile).not.toHaveBeenCalled();
+  });
+
+  it("backfills brew-profile relations", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchShot.mockResolvedValue({ profileName: "Profile A" });
+    const notion = createMockNotion();
+    notion.getProfilePageIdByName.mockResolvedValue("profile-page-id");
+    notion.listBrewsMissingProfileRelation
+      .mockResolvedValueOnce([{ pageId: "brew-page", activityId: "00123" }])
+      .mockResolvedValueOnce([]);
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(gaggimate.fetchShot).toHaveBeenCalledWith("00123");
+    expect(notion.getProfilePageIdByName).toHaveBeenCalledWith("Profile A");
+    expect(notion.setBrewProfileRelation).toHaveBeenCalledWith("brew-page", "profile-page-id");
+  });
+
+  it("skips cycle cleanly when device fetch times out", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockRejectedValue(new Error("Request timeout: No response"));
+    const notion = createMockNotion();
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(notion.listExistingProfiles).not.toHaveBeenCalled();
+    expect(notion.createDraftProfile).not.toHaveBeenCalled();
   });
 });
