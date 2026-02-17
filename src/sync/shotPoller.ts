@@ -128,16 +128,26 @@ export class ShotPoller {
           });
 
           // If the shot references a profile that doesn't exist in Notion yet,
-          // import profiles from GaggiMate first so the brew relation can link.
+          // import only the matching device profile as Draft so the brew relation can link.
           if (brewData.profileName) {
             const profileExists = await this.notion.hasProfileByName(brewData.profileName);
             if (!profileExists) {
               const machineProfiles = await this.gaggimate.fetchProfiles();
-              const importResult = await this.notion.importProfilesFromGaggiMate(machineProfiles);
-              if (importResult.created > 0) {
-                console.log(
-                  `Shot ${shotListItem.id}: imported ${importResult.created} profile(s) before brew sync`,
+              const requestedName = this.notion.normalizeProfileName(brewData.profileName);
+              const matchingProfile = machineProfiles.find((machineProfile: any) => {
+                if (typeof machineProfile?.label !== "string") return false;
+                return this.notion.normalizeProfileName(machineProfile.label) === requestedName;
+              });
+
+              if (matchingProfile) {
+                const importedPageId = await this.notion.createDraftProfile(matchingProfile);
+                await this.notion.uploadProfileImage(
+                  importedPageId,
+                  matchingProfile.label,
+                  matchingProfile,
+                  JSON.stringify(matchingProfile),
                 );
+                console.log(`Shot ${shotListItem.id}: imported profile "${brewData.profileName}" as Draft`);
               }
             }
           }

@@ -35,21 +35,17 @@ export async function pushProfileToGaggiMate(
   }
 
   try {
-    // Push to GaggiMate
-    if (profile.label && profile.label !== "AI Profile") {
-      // Full profile save
-      await gaggimate.saveProfile(profile);
-    } else {
-      // AI Profile update (uses the two-step list-then-save flow)
-      await gaggimate.updateAIProfile({
-        temperature: profile.temperature,
-        phases: profile.phases,
-      });
+    // Unified push path: always save the full profile JSON.
+    const savedResult = await gaggimate.saveProfile(profile);
+    const savedId = notion.extractProfileId(savedResult);
+    if (savedId && !profile.id) {
+      profile.id = savedId;
+      await notion.updateProfileJson(pageId, JSON.stringify(profile));
     }
 
     // Success — update Notion
     const now = new Date().toISOString();
-    await notion.updatePushStatus(pageId, "Pushed", now);
+    await notion.updatePushStatus(pageId, "Pushed", now, true);
     console.log(`Profile ${pageId}: pushed to GaggiMate`);
 
     // Archive sibling versions (push status already set to "Pushed" above,

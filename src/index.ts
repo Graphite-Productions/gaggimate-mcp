@@ -2,17 +2,18 @@ import { config } from "./config.js";
 import { GaggiMateClient } from "./gaggimate/client.js";
 import { createServer } from "./http/server.js";
 import { ShotPoller } from "./sync/shotPoller.js";
-import { ProfilePoller } from "./sync/profilePoller.js";
-import { ProfileImportPoller } from "./sync/profileImportPoller.js";
+import { ProfileReconciler } from "./sync/profileReconciler.js";
 import { NotionClient } from "./notion/client.js";
 
 async function main() {
   console.log("GaggiMate Notion Bridge starting...");
   console.log(`  GaggiMate: ${config.gaggimate.protocol}://${config.gaggimate.host}`);
   console.log(`  HTTP port: ${config.http.port}`);
-  console.log(`  Sync interval: ${config.sync.intervalMs}ms`);
-  console.log(`  Polling fallback: ${config.sync.pollingFallback}`);
-  console.log(`  Profile import: ${config.sync.profileImportEnabled}`);
+  console.log(`  Shot sync interval: ${config.sync.intervalMs}ms`);
+  console.log(`  Profile reconciler: ${config.sync.profileReconcileEnabled}`);
+  if (config.sync.profileReconcileEnabled) {
+    console.log(`  Profile reconcile interval: ${config.sync.profileReconcileIntervalMs}ms`);
+  }
   console.log(`  Brew title time zone: ${config.time.brewTitleTimeZone}`);
 
   // Initialize clients
@@ -34,32 +35,21 @@ async function main() {
   });
   shotPoller.start();
 
-  // Start profile polling fallback
-  let profilePoller: ProfilePoller | null = null;
-  if (config.sync.pollingFallback) {
-    profilePoller = new ProfilePoller(gaggimate, notion, {
-      intervalMs: config.sync.profilePollIntervalMs,
+  // Start profile reconciler
+  let profileReconciler: ProfileReconciler | null = null;
+  if (config.sync.profileReconcileEnabled) {
+    profileReconciler = new ProfileReconciler(gaggimate, notion, {
+      intervalMs: config.sync.profileReconcileIntervalMs,
     });
-    profilePoller.start();
-  }
-
-  let profileImportPoller: ProfileImportPoller | null = null;
-  if (config.sync.profileImportEnabled) {
-    profileImportPoller = new ProfileImportPoller(gaggimate, notion, {
-      intervalMs: config.sync.profileImportIntervalMs,
-    });
-    profileImportPoller.start();
+    profileReconciler.start();
   }
 
   // Handle shutdown
   const shutdown = () => {
     console.log("Shutting down...");
     shotPoller.stop();
-    if (profilePoller) {
-      profilePoller.stop();
-    }
-    if (profileImportPoller) {
-      profileImportPoller.stop();
+    if (profileReconciler) {
+      profileReconciler.stop();
     }
     process.exit(0);
   };

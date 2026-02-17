@@ -17,10 +17,8 @@ export const config = {
   },
   sync: {
     intervalMs: Number(process.env.SYNC_INTERVAL_MS) || 30000,
-    pollingFallback: process.env.POLLING_FALLBACK !== "false",
-    profilePollIntervalMs: Number(process.env.PROFILE_POLL_INTERVAL_MS) || 3000,
-    profileImportEnabled: process.env.PROFILE_IMPORT_ENABLED !== "false",
-    profileImportIntervalMs: Number(process.env.PROFILE_IMPORT_INTERVAL_MS) || 60000,
+    profileReconcileEnabled: process.env.PROFILE_RECONCILE_ENABLED !== "false",
+    profileReconcileIntervalMs: Number(process.env.PROFILE_RECONCILE_INTERVAL_MS) || 30000,
     recentShotLookbackCount: Number(process.env.RECENT_SHOT_LOOKBACK_COUNT) || 5,
   },
   time: {
