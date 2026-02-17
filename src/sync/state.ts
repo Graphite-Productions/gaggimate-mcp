@@ -37,16 +37,22 @@ export class SyncState {
   }
 
   save(): void {
-    const dir = path.dirname(this.filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    try {
+      const dir = path.dirname(this.filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const data: SyncStateData = {
+        lastSyncedShotId: this.lastSyncedShotId,
+        lastSyncTime: this.lastSyncTime,
+        totalShotsSynced: this.totalShotsSynced,
+      };
+      fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2));
+    } catch (error) {
+      // Non-fatal: in-memory state is still correct; next save will retry.
+      // Common causes: disk full, read-only volume, missing mount.
+      console.warn("SyncState: failed to persist state to disk:", error);
     }
-    const data: SyncStateData = {
-      lastSyncedShotId: this.lastSyncedShotId,
-      lastSyncTime: this.lastSyncTime,
-      totalShotsSynced: this.totalShotsSynced,
-    };
-    fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2));
   }
 
   recordSync(shotId: string): void {

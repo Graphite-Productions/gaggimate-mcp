@@ -64,8 +64,11 @@ export class ShotPoller {
   }
 
   private async poll(): Promise<void> {
-    // Prevent overlapping polls
-    if (this.running) return;
+    // Prevent overlapping polls — log once per overlap event so slow polls are visible.
+    if (this.running) {
+      console.log("Shot poller: previous poll still in progress, skipping interval");
+      return;
+    }
     this.running = true;
 
     try {

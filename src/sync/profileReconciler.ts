@@ -161,8 +161,26 @@ export class ProfileReconciler {
           `Profile reconciler: linked ${backfillResult.linked} brew(s) to profiles (scanned ${backfillResult.scanned})`,
         );
       }
+
+      // Log a brief cycle summary so it is easy to confirm the reconciler is working.
+      if (this.savedThisRun > 0 || this.deletedThisRun > 0) {
+        const parts: string[] = [];
+        if (this.savedThisRun > 0) parts.push(`${this.savedThisRun} saved/re-pushed`);
+        if (this.deletedThisRun > 0) parts.push(`${this.deletedThisRun} deleted`);
+        console.log(`Profile reconciler: cycle complete — ${parts.join(", ")}`);
+      }
     } catch (error) {
-      console.error("Profile reconciler error:", error);
+      const isRateLimit =
+        error instanceof Error &&
+        ((error as any).status === 429 ||
+          error.message.includes("429") ||
+          error.message.toLowerCase().includes("rate limit") ||
+          error.message.toLowerCase().includes("throttled"));
+      if (isRateLimit) {
+        console.warn("Profile reconciler: Notion rate limit hit, will retry next interval");
+      } else {
+        console.error("Profile reconciler error:", error);
+      }
     } finally {
       this.running = false;
     }

@@ -21,6 +21,7 @@ export function createHealthRouter(
 
       const syncState = getSyncState();
 
+      const imageUploadDisabled = notion.imageUploadDisabled;
       res.json({
         status: "ok",
         gaggimate: {
@@ -29,6 +30,7 @@ export function createHealthRouter(
         },
         notion: {
           connected: notionConnected,
+          ...(imageUploadDisabled ? { imageUploadDisabled } : {}),
         },
         lastShotSync: syncState?.lastSyncTime ?? null,
         lastShotId: syncState?.lastSyncedShotId ?? null,

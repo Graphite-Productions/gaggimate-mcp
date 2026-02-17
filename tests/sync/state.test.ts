@@ -58,4 +58,20 @@ describe("SyncState", () => {
     expect(state.lastSyncedShotId).toBeNull();
     expect(state.totalShotsSynced).toBe(0);
   });
+
+  it("save failure is non-fatal and preserves in-memory state", () => {
+    // Write a file where the state file path would be, making the write fail
+    const readOnlyDir = path.join(tmpDir, "readonly");
+    fs.mkdirSync(readOnlyDir);
+    const stateFilePath = path.join(readOnlyDir, "sync-state.json");
+    // Place a directory where the file should go — writeFileSync will throw EISDIR
+    fs.mkdirSync(stateFilePath);
+
+    const state = SyncState.load(readOnlyDir);
+    // save() should not throw even though the write will fail
+    expect(() => state.recordSync("99")).not.toThrow();
+    // In-memory state is still updated
+    expect(state.lastSyncedShotId).toBe("99");
+    expect(state.totalShotsSynced).toBe(1);
+  });
 });

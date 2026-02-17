@@ -35,6 +35,11 @@ export class NotionClient {
     this.client = new Client({ auth: notionConfig.apiKey });
   }
 
+  /** Returns the reason image uploads are disabled, or null if they are enabled. */
+  get imageUploadDisabled(): string | null {
+    return this.imageUploadDisabledReason;
+  }
+
   /** Check if the Notion API connection is working */
   async isConnected(): Promise<boolean> {
     try {
