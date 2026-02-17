@@ -5,6 +5,10 @@ import type { NotionClient } from "../../notion/client.js";
 import { config } from "../../config.js";
 import { pushProfileToGaggiMate } from "../../sync/profilePush.js";
 
+export function isWebhookSecretConfigured(secret: string): boolean {
+  return secret.trim().length > 0;
+}
+
 function toHeaderString(value: string | string[] | undefined): string | null {
   if (typeof value === "string") {
     return value;
@@ -45,6 +49,7 @@ export function isValidNotionWebhookSignature(
 
 export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionClient): Router {
   const router = Router();
+  let warnedMissingSecret = false;
 
   router.post("/notion", async (req, res) => {
     try {
@@ -61,18 +66,24 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
-      // Verify webhook signature if configured
-      if (config.webhook.secret) {
-        const rawBody = typeof (req as any).rawBody === "string"
-          ? (req as any).rawBody
-          : JSON.stringify(req.body ?? {});
-        const signature = req.headers["x-notion-signature"];
-        const trusted = isValidNotionWebhookSignature(rawBody, signature, config.webhook.secret);
-        if (!trusted) {
-          console.warn("Webhook signature mismatch — rejecting");
-          res.status(401).json({ error: "Invalid webhook signature" });
-          return;
+      if (!isWebhookSecretConfigured(config.webhook.secret)) {
+        if (!warnedMissingSecret) {
+          console.warn("Webhook events are ignored because WEBHOOK_SECRET is not configured.");
+          warnedMissingSecret = true;
         }
+        res.status(202).json({ ok: true, action: "ignored", reason: "webhook secret not configured" });
+        return;
+      }
+
+      const rawBody = typeof (req as any).rawBody === "string"
+        ? (req as any).rawBody
+        : JSON.stringify(req.body ?? {});
+      const signature = req.headers["x-notion-signature"];
+      const trusted = isValidNotionWebhookSignature(rawBody, signature, config.webhook.secret);
+      if (!trusted) {
+        console.warn("Webhook signature mismatch — rejecting");
+        res.status(401).json({ error: "Invalid webhook signature" });
+        return;
       }
 
       const payload = req.body;

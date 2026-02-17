@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildNotionWebhookSignature,
+  isWebhookSecretConfigured,
   isValidNotionWebhookSignature,
 } from "../../src/http/routes/webhook.js";
 
@@ -42,5 +43,11 @@ describe("Notion webhook signature helpers", () => {
     const signature = buildNotionWebhookSignature(payload, token);
 
     expect(isValidNotionWebhookSignature(payload, [signature, signature], token)).toBe(false);
+  });
+
+  it("requires webhook secret configuration", () => {
+    expect(isWebhookSecretConfigured("")).toBe(false);
+    expect(isWebhookSecretConfigured("   ")).toBe(false);
+    expect(isWebhookSecretConfigured("verification-token")).toBe(true);
   });
 });

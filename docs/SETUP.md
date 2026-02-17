@@ -360,7 +360,7 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 2. Go to **Webhooks** → Create new webhook
 3. Endpoint URL: `https://your-machine.tail12345.ts.net/webhook/notion`
 4. Subscribe to page property changes on the Profiles database
-5. Optional but recommended: copy the webhook **verification token** and add it to your `.env` to enforce request signature validation:
+5. Copy the webhook **verification token** and add it to your `.env` (required for webhook processing):
    ```
    WEBHOOK_SECRET=your_webhook_verification_token_here
    ```
