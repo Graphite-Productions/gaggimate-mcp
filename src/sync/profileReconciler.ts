@@ -1,6 +1,7 @@
 import type { GaggiMateClient } from "../gaggimate/client.js";
 import type { ExistingProfileRecord, NotionClient } from "../notion/client.js";
 import { isConnectivityError, summarizeConnectivityError } from "../utils/connectivity.js";
+import { repairMojibake } from "../utils/text.js";
 
 interface ProfileReconcilerOptions {
   intervalMs: number;
@@ -526,32 +527,12 @@ export class ProfileReconciler {
   }
 
   private normalizeTextForCompare(value: string): string {
-    const repaired = this.repairMojibake(value);
+    const repaired = repairMojibake(value);
     return repaired
       .replace(/[\u2010-\u2015\u2212]/g, "-")
       .replace(/\u00A0/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-  }
-
-  /**
-   * Repairs common UTF-8 -> Latin-1 mojibake so comparison logic
-   * does not churn when firmware/UI round-trips mangled text.
-   */
-  private repairMojibake(value: string): string {
-    if (!/(Ã.|â[\u0080-\u00BF])/u.test(value)) {
-      return value;
-    }
-
-    try {
-      const repaired = Buffer.from(value, "latin1").toString("utf8");
-      if (!repaired || repaired.includes("\uFFFD")) {
-        return value;
-      }
-      return repaired;
-    } catch {
-      return value;
-    }
   }
 
   private findConflictingManagedIds(records: ExistingProfileRecord[]): Set<string> {
@@ -594,7 +575,7 @@ export class ProfileReconciler {
   }
 
   private isValidPushProfile(profile: any): boolean {
-    if (typeof profile?.temperature !== "number") {
+    if (typeof profile?.temperature !== "number" || !Number.isFinite(profile.temperature)) {
       return false;
     }
     if (profile.temperature < 60 || profile.temperature > 100) {

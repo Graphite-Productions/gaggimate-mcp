@@ -78,28 +78,35 @@ export class ShotPoller {
         return;
       }
 
-      // Find new shots: shots with ID > lastSyncedShotId
+      // Parse IDs once for efficient filtering and sorting
       const lastId = state.lastSyncedShotId ? parseInt(state.lastSyncedShotId, 10) : 0;
+      const shotNumericIds = new Map<string, number>();
+      for (const s of shots) {
+        shotNumericIds.set(s.id, parseInt(s.id, 10));
+      }
+      const numId = (s: { id: string }) => shotNumericIds.get(s.id)!;
+
+      // Find new shots: shots with ID > lastSyncedShotId
       const newShots = shots
-        .filter((s) => parseInt(s.id, 10) > lastId)
-        .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10)); // Process oldest first
+        .filter((s) => numId(s) > lastId)
+        .sort((a, b) => numId(a) - numId(b)); // Process oldest first
 
       // Revisit a small lookback window to hydrate/fix already-synced brews
       // that were first seen while the shot file was still settling.
       const recentLowerBound = Math.max(1, lastId - this.options.recentShotLookbackCount + 1);
       const recentShots = shots
         .filter((s) => {
-          const id = parseInt(s.id, 10);
+          const id = numId(s);
           return id >= recentLowerBound && id <= lastId;
         })
-        .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+        .sort((a, b) => numId(a) - numId(b));
 
       const candidateById = new Map<string, (typeof shots)[number]>();
       for (const shot of [...recentShots, ...newShots]) {
         candidateById.set(shot.id, shot);
       }
       const candidateShots = Array.from(candidateById.values())
-        .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+        .sort((a, b) => numId(a) - numId(b));
 
       if (candidateShots.length === 0) {
         return;
@@ -119,8 +126,7 @@ export class ShotPoller {
             continue;
           }
 
-          const shotNumericId = parseInt(shotListItem.id, 10);
-          const isNewShot = shotNumericId > lastId;
+          const isNewShot = numId(shotListItem) > lastId;
 
           // If shot file is still being written, retry on next interval.
           // Do not advance sync state past this shot ID yet.

@@ -4,6 +4,7 @@ import { brewDataToNotionProperties } from "./mappers.js";
 import { renderProfileChartSvg } from "../visualization/profileChart.js";
 import { renderBrewChartSvg } from "../visualization/brewChart.js";
 import type { ShotData } from "../parsers/binaryShot.js";
+import { repairMojibake, normalizeProfileName as normalizeProfileNameUtil } from "../utils/text.js";
 
 export interface ExistingProfileRecord {
   pageId: string;
@@ -436,13 +437,7 @@ export class NotionClient {
   }
 
   normalizeProfileName(name: string): string {
-    const repaired = this.repairMojibake(name);
-    return repaired
-      .replace(/[\u2010-\u2015\u2212]/g, "-")
-      .replace(/\u00A0/g, " ")
-      .trim()
-      .replace(/\s+/g, " ")
-      .toLowerCase();
+    return normalizeProfileNameUtil(name);
   }
 
   async listExistingProfiles(): Promise<ExistingProfilesIndex> {
@@ -685,25 +680,5 @@ export class NotionClient {
   private sanitizeFileName(value: string): string {
     const normalized = value.trim().replace(/\s+/g, "-").replace(/[^a-zA-Z0-9\-_]/g, "").toLowerCase();
     return normalized || "profile";
-  }
-
-  /**
-   * Attempt to repair common UTF-8 -> Latin-1 mojibake (e.g. "â" vs "—")
-   * seen in some machine-provided profile names.
-   */
-  private repairMojibake(value: string): string {
-    if (!/(Ã.|â[\u0080-\u00BF])/u.test(value)) {
-      return value;
-    }
-
-    try {
-      const repaired = Buffer.from(value, "latin1").toString("utf8");
-      if (!repaired || repaired.includes("\uFFFD")) {
-        return value;
-      }
-      return repaired;
-    } catch {
-      return value;
-    }
   }
 }
