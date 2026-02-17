@@ -9,6 +9,7 @@ Forked from [Matvey-Kuk/gaggimate-mcp](https://github.com/Matvey-Kuk/gaggimate-m
 - **Auto-logs shots** — Polls GaggiMate every 30s for new shots, creates entries in your Notion Brews database with brew time, temperature, pressure, weight, and profile name
 - **Pushes profiles** — When you (or Notion AI) set a profile's Push Status to "Queued" in Notion, the service pushes it to the GaggiMate within seconds
 - **Reconciles profiles** — Notion is the source of truth for bridge-managed profiles (`Queued`/`Pushed`/`Archived`), and unmatched machine-only profiles are imported as `Draft`
+- **Syncs profile state** — `Favorite` and `Selected` checkboxes in Notion sync to GaggiMate for managed profiles
 - **Generates profile charts** — Auto-attaches a pressure/flow chart image to `Profile Image` for imported machine profiles when missing
 - **Backfills brew/profile links** — Automatically links existing brews to profiles when `Activity ID` + shot metadata identifies the profile
 - **Survives firmware updates** — Shot history on the ESP32 gets wiped by OTA updates; Notion is the permanent record
@@ -78,6 +79,8 @@ Three databases, fully interlinked:
 - **Beans** — Each bag of beans you buy
 - **Brews** — Every shot, auto-populated by the bridge
 - **Profiles** — Pressure profiles with push-to-machine capability
+
+Important for Profiles DB: add `Favorite` (checkbox) and `Selected` (checkbox) properties so device state sync works.
 
 See [`docs/SETUP.md`](docs/SETUP.md) for complete setup instructions including Notion database schemas, environment configuration, and deployment options.
 

@@ -92,12 +92,18 @@ Create three databases in your Notion workspace. The names are flexible, but the
 | Best For | Multi-select | Light Roast, Medium Roast, Dark Roast, etc. |
 | Source | Select | Stock, Community, AI-Generated, Custom |
 | Active on Machine | Checkbox | Tracking what's loaded |
+| Favorite | Checkbox | Sync target to machine favorite state for managed profiles |
+| Selected | Checkbox | When checked, bridge selects this profile on the machine |
 | Profile Image | File | Screenshot/export of curve |
 | Profile JSON | Text | Raw JSON the machine reads |
-| Push Status | Select | `Draft`, `Queued`, `Pushed`, `Failed` |
+| Push Status | Select | `Draft`, `Queued`, `Pushed`, `Archived`, `Failed` |
 | Last Pushed | Date (with time) | Auto-set by bridge |
 | Brews | Relation → Brews | Two-way relation |
 | Notes | Text | Anything else |
+
+Required for reconciler/device state sync:
+- `Favorite` must be a **Checkbox** property named exactly `Favorite`
+- `Selected` must be a **Checkbox** property named exactly `Selected`
 
 Relations map:
 - Beans `<->` Brews (via `Brews` on Beans and `Beans` on Brews)
@@ -138,32 +144,33 @@ The bridge does not manage every field. Keep formulas/relations in Notion, and l
 
 **Profiles DB**
 - Bridge writes:
-  - On profile reconcile from GaggiMate (non-destructive):
-    - `Profile Name`
-    - `Description`
-    - `Profile Type`
-    - `Source`
-    - `Active on Machine`
-    - `Profile JSON`
-    - `Profile Image` (auto-generated pressure/flow chart when empty)
-    - `Push Status` (`Pushed`)
-    - `Last Pushed` (import timestamp)
-  - Marks profiles not currently on machine as `Active on Machine = false` (keeps history in Notion)
-  - `Push Status` (to `Pushed` or `Failed` after push attempts)
-  - `Last Pushed` (timestamp on success)
+  - On device-only profile import (created on GaggiMate UI):
+    - Creates Notion page with `Push Status = Draft`
+    - Sets `Profile Name`, `Description`, `Profile Type`, `Source`, `Profile JSON`
+    - Sets `Active on Machine = true`
+    - Copies `Favorite` and `Selected` from device state
+    - Uploads `Profile Image` chart
+  - On successful push/reconcile:
+    - `Push Status` (`Pushed` or `Failed`)
+    - `Last Pushed` (on success)
+    - `Active on Machine` (true when on device, false when archived/removed)
+  - For newly pushed profiles:
+    - Writes back machine-assigned profile `id` into `Profile JSON`
+  - For `Archived` profiles:
+    - Deletes non-utility profiles from machine
+    - Never deletes utility profiles (`flush`, `descale`)
 - Bridge reads:
-  - `Profile Name`
   - `Profile JSON`
-  - `Push Status` (`Queued` trigger)
+  - `Push Status`
+  - `Favorite`
+  - `Selected`
+  - `Profile Name` / `Source` (for matching + AI sibling archive behavior)
 - Notion/user-managed:
-  - `Description`
-  - `Profile Type`
   - `Best For`
-  - `Source`
-  - `Active on Machine`
   - `Profile Image` (optional manual override)
   - `Brews` relation
   - `Notes`
+  - You may still edit `Description`, `Profile Type`, `Source`, and `Profile JSON`; for `Pushed` records, Notion JSON is authoritative and will be re-applied to device
 
 **After creating databases:** Share each one with your Notion integration (Step 3).
 
@@ -311,11 +318,28 @@ Pull an espresso shot on your machine. Within 30 seconds, a new entry should app
 4. Confirm imported profile starts with `Push Status = Draft`
 5. Confirm the brew's `Profile` relation links to that profile
 
+### 5. Test authoritative Notion reconcile
+1. Edit `Profile JSON` for an existing `Pushed` profile in Notion
+2. Wait one reconcile interval
+3. Confirm profile remains edited in Notion and changes are pushed to machine (Notion wins)
+
+### 6. Test archive behavior
+1. Set a non-utility profile `Push Status` to `Archived`
+2. Confirm it is removed from GaggiMate
+3. Confirm `Active on Machine` is unchecked
+4. Repeat with a utility profile (`flush`/`descale`) and confirm it is not deleted
+
+### 7. Test Favorite/Selected sync
+1. For a `Pushed` profile, toggle `Favorite` in Notion
+2. Confirm favorite state changes on GaggiMate
+3. Check `Selected` in Notion for a profile
+4. Confirm that profile becomes selected on GaggiMate
+
 ---
 
 ## Step 7: Set Up Webhooks (Optional)
 
-For real-time profile push (< 1 second instead of 3 seconds polling), set up Notion webhooks via Tailscale Funnel.
+For real-time profile push (< 1 second instead of waiting for the next reconcile interval), set up Notion webhooks via Tailscale Funnel.
 
 ### Enable Tailscale Funnel
 

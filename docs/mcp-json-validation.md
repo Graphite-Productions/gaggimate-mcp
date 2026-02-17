@@ -1,225 +1,117 @@
-# MCP Profile JSON Validation Specification
+# Profile JSON Validation and Reconciliation Specification
 
 ## Purpose
-This spec defines how the bridge validates `Profile JSON` from Notion before pushing to GaggiMate.
+This document defines the current profile validation and reconciliation behavior used by the bridge.
 
-Goal: prevent malformed or unsafe profiles from reaching the machine while keeping Notion AI output predictable.
+Goals:
+- Prevent malformed profiles from being pushed to GaggiMate.
+- Keep profile state deterministic between Notion and GaggiMate.
+- Preserve device-created profiles by importing them into Notion as unmanaged drafts.
 
-## Scope
-- Source: Notion Profiles DB property `Profile JSON` (text/rich text)
-- Trigger: profile page where `Push Status = Queued`
-- Consumers:
-  - Webhook path: `POST /webhook/notion`
-  - Polling fallback: queued profile poller
-- On success: push profile to GaggiMate, set `Push Status = Pushed`, set `Last Pushed`
-- On validation failure: set `Push Status = Failed`, write concise error details to `Push Error` (or append to `Notes` if `Push Error` is absent)
+## Runtime Paths
+- Webhook push path: `POST /webhook/notion` + `pushProfileToGaggiMate`
+- Reconcile loop path: `src/sync/profileReconciler.ts`
 
-## Status Semantics
-- `Draft`: authoring stage, not pushable
-- `Queued`: ready to validate and push
-- `Pushed`: successfully on machine
-- `Failed`: validation or push failed
+Both paths enforce queued-only push behavior and the same core validation gates.
 
-Imported profiles discovered from GaggiMate should be written as `Pushed` (not `Draft`).
+## Push Status Semantics
+- `Draft`: Exists in Notion only; bridge does not push or delete it.
+- `Queued`: Eligible for validation + push.
+- `Pushed`: Managed profile on device; Notion JSON is authoritative.
+- `Archived`: Should not exist on device (non-utility profiles are deleted).
+- `Failed`: Last push/delete attempt failed; requires user attention.
 
-## Validation Contract
+Device-only profiles discovered on GaggiMate are imported as `Draft` (not `Pushed`).
 
-### Input
-- `rawJson: string` from Notion `Profile JSON`
+## Validation Rules (Current Implementation)
+Validation is intentionally minimal and mirrors actual code behavior.
 
-### Output
-```ts
-interface ValidationResult {
-  valid: boolean;
-  profile?: NormalizedProfile;
-  errors: ValidationIssue[];
-  warnings: ValidationIssue[];
-}
+Required for a push attempt:
+1. `Profile JSON` parses as valid JSON object.
+2. `temperature` is a number in range `60..100`.
+3. `phases` is an array with at least one element.
 
-interface ValidationIssue {
-  path: string;      // e.g. "phases[1].pump.pressure"
-  code: string;      // e.g. "REQUIRED", "TYPE", "RANGE", "ENUM", "CROSS_FIELD"
-  message: string;
-  value?: unknown;
-}
-```
+If any validation check fails:
+- Set `Push Status = Failed`
+- Skip device operations for that profile in that cycle
 
-### Processing Order
-1. Parse JSON
-2. Validate top-level fields
-3. Validate each phase
-4. Validate cross-field rules
-5. Normalize defaults (only after required/typing checks pass)
-6. Return `valid` + normalized profile or structured errors
+## Reconciliation Rules
 
-## Canonical Profile Shape (v1)
+### `Queued`
+- Validate profile JSON.
+- Push to device via `saveProfile`.
+- If device returns a new `id`, write that `id` back into Notion `Profile JSON`.
+- Set `Push Status = Pushed`, `Last Pushed = now`, `Active on Machine = true`.
+- Preserve existing AI sibling archive behavior.
 
-```ts
-interface Profile {
-  label: string;
-  type: "simple" | "pro";
-  description?: string;
-  temperature: number;           // celsius
-  phases: Phase[];
-}
+### `Pushed`
+- If missing on device: re-push from Notion JSON.
+- If present but drifted: re-push Notion JSON (Notion wins).
+- Sync `Favorite` and `Selected` from Notion to device.
+- Ensure `Active on Machine = true`.
 
-interface Phase {
-  name: string;
-  phase: "preinfusion" | "brew";
-  valve?: 0 | 1;
-  duration: number;              // seconds
-  temperature?: number;          // 0 means inherit top-level
-  transition?: {
-    type: "instant" | "linear" | "ease-in" | "ease-out" | "ease-in-out";
-    duration: number;
-    adaptive?: boolean;
-  };
-  pump?: {
-    target: "pressure" | "flow";
-    pressure?: number;
-    flow?: number;
-  };
-  targets?: Array<{
-    type: "pressure" | "flow" | "volumetric" | "pumped";
-    operator?: "gte" | "lte";
-    value: number;
-  }>;
-}
-```
+### `Archived`
+- If present on device and not utility (`flush`/`descale`), delete from device.
+- Ensure `Active on Machine = false`.
+- If delete fails, set `Push Status = Failed`.
 
-## Required Fields
+### `Draft` / `Failed`
+- No automated device operation.
 
-### Top-Level
-- `label`: required string, trimmed length `1..64`
-- `type`: required enum: `simple | pro`
-- `temperature`: required number
-- `phases`: required non-empty array
-
-### Per Phase
-- `name`: required string, trimmed length `1..64`
-- `phase`: required enum: `preinfusion | brew`
-- `duration`: required number
-- `pump`: required object
-- `pump.target`: required enum: `pressure | flow`
-
-## Range and Safety Rules
-- top-level `temperature`: `60..100`
-- phase `duration`: `> 0` and `<= 180`
-- phase `temperature`:
-  - if `0`: inherit top-level
-  - else `60..100`
-- `pump.pressure` (when provided): `0..15`
-- `pump.flow` (when provided):
-  - `-1` allowed only for adaptive flow mode
-  - otherwise `0..10`
-- `targets[].value`: must be numeric and `> 0`
-
-## Cross-Field Rules
-- If `pump.target = pressure`:
-  - `pump.pressure` must be present and `> 0`
-  - `pump.flow` optional limit
-- If `pump.target = flow`:
-  - `pump.flow` must be present and (`> 0` or `-1`)
-  - `pump.pressure` optional limit
-- If `transition.type = instant`, `transition.duration` should be `0` (warning if not)
-- `phases.length` must be `1..10` (error outside)
-
-## Unsupported / Rejected Values (v1)
-Reject these with `ENUM` error:
-- transition types not in `instant | linear | ease-in | ease-out | ease-in-out`
-- pump target not in `pressure | flow`
-- target type not in `pressure | flow | volumetric | pumped`
-
-## Normalization Rules
-Applied only when `errors.length === 0`.
-- `description` default: `""`
-- phase `valve` default: `1`
-- phase `temperature` default: `0` (inherit)
-- phase `transition` default: `{ type: "instant", duration: 0, adaptive: true }`
-- `transition.adaptive` default: `true`
-- target `operator` default: `gte`
-
-## Error vs Warning
-- Error: profile is not pushed; status becomes `Failed`
-- Warning: profile is pushable; warning is logged and optionally appended to `Notes`
-
-Warning examples:
-- no phase `targets` configured (machine may rely on manual stop)
-- temperature at hard boundary (`60` or `100`)
-- total profile duration unusually high (e.g. > 120s)
+### Unmatched Device Profiles
+- Import as new Notion pages with `Push Status = Draft`.
+- Set `Active on Machine = true`.
+- Copy `Favorite` and `Selected` from device state.
+- Upload generated profile image when possible.
 
 ## Notion Writeback Rules
-On validation failure:
-- set `Push Status = Failed`
-- write top 1-3 concise validation errors to `Push Error`
-- if `Push Error` property is missing, append message to `Notes`
 
-On success:
-- push to GaggiMate
-- set `Push Status = Pushed`
-- set `Last Pushed = now`
+On successful push/re-push:
+- `Push Status = Pushed`
+- `Last Pushed = now`
+- `Active on Machine = true`
 
-## Webhook and Polling Requirements
-Both webhook and poller paths must enforce the same gate:
-- Only process pages where current `Push Status == Queued`
+On successful archive/delete:
+- `Push Status = Archived`
+- `Active on Machine = false`
 
-This prevents accidental pushes from unrelated edits (e.g. description updates).
+On push/delete failure:
+- `Push Status = Failed`
+
+Additional writeback:
+- For newly pushed profiles without ID, bridge writes machine-assigned `id` into `Profile JSON`.
+
+## Queued-Only Enforcement
+- Webhook path processes a profile only when current `Push Status == Queued`.
+- Reconciler pushes only `Queued` profiles (other statuses follow their own non-push rules).
 
 ## Example Valid JSON
 ```json
 {
-  "label": "AI Dial-In v2",
+  "label": "Dial-In v2",
   "type": "pro",
-  "description": "Ethiopian natural, slightly finer grind",
-  "temperature": 94,
+  "temperature": 93,
   "phases": [
-    {
-      "name": "Preinfusion",
-      "phase": "preinfusion",
-      "duration": 8,
-      "pump": { "target": "pressure", "pressure": 3 }
-    },
     {
       "name": "Extraction",
       "phase": "brew",
       "duration": 30,
-      "pump": { "target": "pressure", "pressure": 9 },
-      "targets": [{ "type": "volumetric", "value": 38 }]
+      "pump": {
+        "target": "pressure",
+        "pressure": 9
+      }
     }
   ]
 }
 ```
 
-## Example Invalid JSON
-```json
-{
-  "label": "",
-  "type": "advanced",
-  "temperature": 140,
-  "phases": []
-}
-```
-
-Expected errors:
-- `label` non-empty
-- `type` enum
-- `temperature` range
-- `phases` non-empty
-
-## Test Matrix
-Minimum tests:
-1. valid pro profile
-2. minimal valid profile
-3. malformed JSON
-4. missing required fields
-5. out-of-range values
-6. invalid enums
-7. cross-field pump invalid combinations
-8. unsupported transition/target values
-9. normalization defaults applied
-10. warnings emitted without blocking push
-11. queued-only enforcement in webhook/poller integration tests
-
-## Versioning
-- This document is v1.
-- If firmware adds fields/modes, update validator and this spec together.
+## Minimum Test Matrix
+1. Queued valid JSON pushes and sets `Pushed`.
+2. Queued invalid JSON sets `Failed`.
+3. Queued invalid temperature/phases sets `Failed`.
+4. Newly pushed profile writes back returned machine `id`.
+5. Pushed + missing on device re-pushes from Notion.
+6. Pushed + drift re-pushes Notion JSON and then syncs `Favorite`/`Selected`.
+7. Archived non-utility profile deletes from device.
+8. Archived utility profile is not deleted.
+9. Unmatched device profile imports as `Draft`.
