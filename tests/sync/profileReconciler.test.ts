@@ -820,4 +820,15 @@ describe("ProfileReconciler", () => {
     expect(notion.listExistingProfiles).not.toHaveBeenCalled();
     expect(notion.createDraftProfile).not.toHaveBeenCalled();
   });
+
+  it("skips cycle cleanly when device is unreachable", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockRejectedValue(new Error("WebSocket error: connect EHOSTUNREACH 192.168.68.51:80"));
+    const notion = createMockNotion();
+
+    await runReconcile(gaggimate as any, notion as any);
+
+    expect(notion.listExistingProfiles).not.toHaveBeenCalled();
+    expect(notion.createDraftProfile).not.toHaveBeenCalled();
+  });
 });

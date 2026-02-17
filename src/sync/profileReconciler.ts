@@ -1,5 +1,6 @@
 import type { GaggiMateClient } from "../gaggimate/client.js";
 import type { ExistingProfileRecord, NotionClient } from "../notion/client.js";
+import { isConnectivityError, summarizeConnectivityError } from "../utils/connectivity.js";
 
 interface ProfileReconcilerOptions {
   intervalMs: number;
@@ -18,6 +19,7 @@ export class ProfileReconciler {
   private deleteLimitWarned = false;
   private savedThisRun = 0;
   private saveLimitWarned = false;
+  private connectivityWarningActive = false;
 
   constructor(gaggimate: GaggiMateClient, notion: NotionClient, options: ProfileReconcilerOptions) {
     this.gaggimate = gaggimate;
@@ -52,9 +54,17 @@ export class ProfileReconciler {
       let deviceProfiles: any[];
       try {
         deviceProfiles = await this.gaggimate.fetchProfiles();
+        if (this.connectivityWarningActive) {
+          console.log("Profile reconciler: GaggiMate connectivity restored");
+          this.connectivityWarningActive = false;
+        }
       } catch (error) {
-        if (this.isTimeoutError(error)) {
-          console.warn("Profile reconciler: GaggiMate unreachable, will retry next interval");
+        if (isConnectivityError(error)) {
+          const summary = summarizeConnectivityError(error);
+          if (!this.connectivityWarningActive) {
+            console.warn(`Profile reconciler: GaggiMate unreachable (${summary}), will retry next interval`);
+            this.connectivityWarningActive = true;
+          }
         } else {
           console.error("Profile reconciler: failed to fetch device profiles:", error);
         }
@@ -609,16 +619,6 @@ export class ProfileReconciler {
       return "";
     }
     return this.notion.normalizeProfileName(profileLabel);
-  }
-
-  private isTimeoutError(error: unknown): boolean {
-    if (!(error instanceof Error)) {
-      return false;
-    }
-
-    const name = error.name.toLowerCase();
-    const message = error.message.toLowerCase();
-    return name.includes("timeout") || name.includes("abort") || message.includes("timeout") || message.includes("aborted");
   }
 
   private canPerformSaveOperation(): boolean {

@@ -3,6 +3,7 @@ import type { NotionClient } from "../notion/client.js";
 import { SyncState } from "./state.js";
 import { shotToBrewData } from "../notion/mappers.js";
 import { transformShotForAI } from "../transformers/shotTransformer.js";
+import { isConnectivityError, summarizeConnectivityError } from "../utils/connectivity.js";
 
 interface ShotPollerOptions {
   intervalMs: number;
@@ -17,6 +18,7 @@ export class ShotPoller {
   private options: ShotPollerOptions;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private connectivityWarningActive = false;
 
   constructor(gaggimate: GaggiMateClient, notion: NotionClient, options: ShotPollerOptions) {
     this.gaggimate = gaggimate;
@@ -40,13 +42,19 @@ export class ShotPoller {
     console.log("Shot poller stopped");
   }
 
-  private isTimeoutError(error: unknown): boolean {
-    if (error instanceof Error) {
-      const name = error.name.toLowerCase();
-      const message = error.message.toLowerCase();
-      return name.includes("timeout") || name.includes("abort") || message.includes("timeout") || message.includes("aborted");
+  private warnConnectivityIssue(error: unknown): void {
+    const summary = summarizeConnectivityError(error);
+    if (!this.connectivityWarningActive) {
+      console.warn(`Shot poller: GaggiMate unreachable (${summary}), will retry next interval`);
+      this.connectivityWarningActive = true;
     }
-    return false;
+  }
+
+  private clearConnectivityWarning(): void {
+    if (this.connectivityWarningActive) {
+      console.log("Shot poller: GaggiMate connectivity restored");
+      this.connectivityWarningActive = false;
+    }
   }
 
   private async poll(): Promise<void> {
@@ -59,6 +67,7 @@ export class ShotPoller {
 
       // Fetch shot history (sorted most recent first by indexToShotList)
       const shots = await this.gaggimate.fetchShotHistory();
+      this.clearConnectivityWarning();
       if (shots.length === 0) {
         this.running = false;
         return;
@@ -192,8 +201,8 @@ export class ShotPoller {
             console.warn(`Shot ${shotListItem.id}: failed to upload Brew Profile chart`, error);
           }
         } catch (error) {
-          if (this.isTimeoutError(error)) {
-            console.warn(`Shot ${shotListItem.id}: timed out fetching data, will retry next poll`);
+          if (isConnectivityError(error)) {
+            this.warnConnectivityIssue(error);
             break;
           }
           // Per-shot failure isolation — log and continue
@@ -206,8 +215,8 @@ export class ShotPoller {
       }
     } catch (error) {
       // Top-level failure — GaggiMate unreachable or other fatal error
-      if (error instanceof Error && error.message.includes("timeout")) {
-        console.warn("Shot poller: GaggiMate unreachable, will retry next interval");
+      if (isConnectivityError(error)) {
+        this.warnConnectivityIssue(error);
       } else {
         console.error("Shot poller error:", error);
       }
