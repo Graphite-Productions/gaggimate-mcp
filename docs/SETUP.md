@@ -358,9 +358,9 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 2. Go to **Webhooks** → Create new webhook
 3. Endpoint URL: `https://your-machine.tail12345.ts.net/webhook/notion`
 4. Subscribe to page property changes on the Profiles database
-5. Optional: copy the webhook secret and add it to your `.env` to enforce request signature validation:
+5. Optional but recommended: copy the webhook **verification token** and add it to your `.env` to enforce request signature validation:
    ```
-   WEBHOOK_SECRET=your_webhook_secret_here
+   WEBHOOK_SECRET=your_webhook_verification_token_here
    ```
 6. Restart the bridge service
 

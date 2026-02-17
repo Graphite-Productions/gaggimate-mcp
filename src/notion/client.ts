@@ -508,7 +508,12 @@ export class NotionClient {
 
   normalizeProfileName(name: string): string {
     const repaired = this.repairMojibake(name);
-    return repaired.trim().replace(/\s+/g, " ").toLowerCase();
+    return repaired
+      .replace(/[\u2010-\u2015\u2212]/g, "-")
+      .replace(/\u00A0/g, " ")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
   }
 
   /** Strip version suffixes to find sibling profiles (e.g. "AI Espresso v2" → "ai espresso") */

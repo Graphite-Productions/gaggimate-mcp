@@ -44,7 +44,15 @@ describe("NotionClient profile helpers", () => {
     const { notion } = createNotionClient();
 
     const normalized = notion.normalizeProfileName("Linea Gesha â Extended Bloom Clarity v3");
-    expect(normalized).toBe("linea gesha — extended bloom clarity v3");
+    expect(normalized).toBe("linea gesha - extended bloom clarity v3");
+  });
+
+  it("normalizeProfileName normalizes dash variants and non-breaking spaces", () => {
+    const { notion } = createNotionClient();
+
+    const normalized = notion.normalizeProfileName("Linea\u00A0Gesha — Extended Bloom");
+    expect(normalized).toBe("linea gesha - extended bloom");
+    expect(notion.normalizeProfileName("Linea Gesha - Extended Bloom")).toBe(normalized);
   });
 
   it("createDraftProfile creates Draft profile with machine state fields", async () => {

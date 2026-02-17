@@ -1,14 +1,59 @@
 import { Router } from "express";
+import { createHmac, timingSafeEqual } from "crypto";
 import type { GaggiMateClient } from "../../gaggimate/client.js";
 import type { NotionClient } from "../../notion/client.js";
 import { config } from "../../config.js";
 import { pushProfileToGaggiMate } from "../../sync/profilePush.js";
+
+function toHeaderString(value: string | string[] | undefined): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value) && value.length > 0 && typeof value[0] === "string") {
+    return value[0];
+  }
+  return null;
+}
+
+function secureEquals(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+export function buildNotionWebhookSignature(payload: string, verificationToken: string): string {
+  const digest = createHmac("sha256", verificationToken).update(payload).digest("hex");
+  return `sha256=${digest}`;
+}
+
+export function isValidNotionWebhookSignature(
+  payload: string,
+  signatureHeader: string | string[] | undefined,
+  verificationToken: string,
+): boolean {
+  const signature = toHeaderString(signatureHeader);
+  if (!signature) {
+    return false;
+  }
+
+  const expectedSignature = buildNotionWebhookSignature(payload, verificationToken);
+  return secureEquals(signature, expectedSignature);
+}
 
 export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionClient): Router {
   const router = Router();
 
   router.post("/notion", async (req, res) => {
     try {
+      if (typeof req.body?.verification_token === "string") {
+        console.log("Notion webhook verification token received. Save this token to WEBHOOK_SECRET.");
+        res.json({ ok: true, action: "verification_token_received" });
+        return;
+      }
+
       // Handle Notion's verification challenge (initial webhook setup)
       if (req.body?.type === "url_verification") {
         console.log("Notion webhook verification challenge received");
@@ -16,10 +61,14 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
-      // Verify webhook secret if configured
+      // Verify webhook signature if configured
       if (config.webhook.secret) {
+        const rawBody = typeof (req as any).rawBody === "string"
+          ? (req as any).rawBody
+          : JSON.stringify(req.body ?? {});
         const signature = req.headers["x-notion-signature"];
-        if (!signature || signature !== config.webhook.secret) {
+        const trusted = isValidNotionWebhookSignature(rawBody, signature, config.webhook.secret);
+        if (!trusted) {
           console.warn("Webhook signature mismatch — rejecting");
           res.status(401).json({ error: "Invalid webhook signature" });
           return;
