@@ -1,12 +1,15 @@
 import { Router } from "express";
 import type { GaggiMateClient } from "../../gaggimate/client.js";
 import type { NotionClient } from "../../notion/client.js";
-import { SyncState } from "../../sync/state.js";
-import { config } from "../../config.js";
+import type { SyncState } from "../../sync/state.js";
 
 const startTime = Date.now();
 
-export function createHealthRouter(gaggimate: GaggiMateClient, notion: NotionClient): Router {
+export function createHealthRouter(
+  gaggimate: GaggiMateClient,
+  notion: NotionClient,
+  getSyncState: () => SyncState | null,
+): Router {
   const router = Router();
 
   router.get("/", async (_req, res) => {
@@ -16,7 +19,7 @@ export function createHealthRouter(gaggimate: GaggiMateClient, notion: NotionCli
         notion.isConnected(),
       ]);
 
-      const syncState = SyncState.load(config.data.dir);
+      const syncState = getSyncState();
 
       res.json({
         status: "ok",
@@ -27,9 +30,9 @@ export function createHealthRouter(gaggimate: GaggiMateClient, notion: NotionCli
         notion: {
           connected: notionConnected,
         },
-        lastShotSync: syncState.lastSyncTime,
-        lastShotId: syncState.lastSyncedShotId,
-        totalShotsSynced: syncState.totalShotsSynced,
+        lastShotSync: syncState?.lastSyncTime ?? null,
+        lastShotId: syncState?.lastSyncedShotId ?? null,
+        totalShotsSynced: syncState?.totalShotsSynced ?? 0,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       });
     } catch (error) {

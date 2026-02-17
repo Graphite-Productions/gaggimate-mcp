@@ -61,6 +61,38 @@ export function isValidNotionWebhookSignature(
   return secureEquals(signature, expectedSignature);
 }
 
+async function processWebhookEvent(
+  gaggimate: GaggiMateClient,
+  notion: NotionClient,
+  pageId: string,
+): Promise<void> {
+  const { profileJson, pushStatus } = await notion.getProfilePushData(pageId);
+  const action = resolveWebhookProfileAction(pushStatus);
+
+  if (action === "ignore") {
+    return;
+  }
+
+  if (!profileJson) {
+    console.log(`Webhook for page ${pageId}: no Profile JSON found, ignoring`);
+    return;
+  }
+
+  if (action === "push_queued") {
+    await pushProfileToGaggiMate(gaggimate, notion, pageId, profileJson);
+    return;
+  }
+
+  // Pushed — sync checkbox state to device.
+  const profileId = notion.extractProfileIdFromJson(profileJson);
+  if (!profileId) {
+    console.warn(`Webhook for page ${pageId}: Pushed profile has no JSON id, cannot sync favorite/selected`);
+    return;
+  }
+
+  await syncFavoriteAndSelectedFromNotion(gaggimate, notion, pageId, profileId);
+}
+
 export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionClient): Router {
   const router = Router();
   let warnedMissingSecret = false;
@@ -119,38 +151,13 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
-      // Fetch page status first. Status dominates all other behavior.
-      const { profileJson, pushStatus } = await notion.getProfilePushData(pageId);
-      const action = resolveWebhookProfileAction(pushStatus);
-      if (action === "ignore") {
-        res.json({ ok: true, action: "ignored", reason: "push status not actionable" });
-        return;
-      }
+      // Respond immediately so Notion doesn't timeout waiting for device/API calls.
+      res.json({ ok: true, action: "accepted" });
 
-      if (!profileJson) {
-        console.log(`Webhook for page ${pageId}: no Profile JSON found, ignoring`);
-        res.json({ ok: true, action: "ignored", reason: "no profile json" });
-        return;
-      }
-
-      if (action === "push_queued") {
-        // Queued means push now.
-        await pushProfileToGaggiMate(gaggimate, notion, pageId, profileJson);
-        res.json({ ok: true, action: "profile_pushed" });
-        return;
-      }
-
-      // Pushed means profile already exists on device; sync checkbox state immediately.
-      const profileId = notion.extractProfileIdFromJson(profileJson);
-      if (!profileId) {
-        console.warn(`Webhook for page ${pageId}: Pushed profile has no JSON id, cannot sync favorite/selected`);
-        res.json({ ok: true, action: "ignored", reason: "pushed profile missing id" });
-        return;
-      }
-
-      await syncFavoriteAndSelectedFromNotion(gaggimate, notion, pageId, profileId);
-
-      res.json({ ok: true, action: "profile_preferences_synced" });
+      // Process the webhook event in the background.
+      processWebhookEvent(gaggimate, notion, pageId).catch((error) => {
+        console.error(`Webhook background processing failed for page ${pageId}:`, error);
+      });
     } catch (error) {
       console.error("Webhook processing error:", error);
       res.status(500).json({

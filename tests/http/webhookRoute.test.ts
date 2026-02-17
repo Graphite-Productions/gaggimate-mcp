@@ -81,7 +81,7 @@ describe("webhook route status handling", () => {
     expect(resolveWebhookProfileAction(null)).toBe("ignore");
   });
 
-  it("syncs favorite and selected immediately for Pushed profiles", async () => {
+  it("syncs favorite and selected in background for Pushed profiles", async () => {
     const gaggimate = createMockGaggimate();
     const notion = createMockNotion();
     notion.getProfilePushData.mockResolvedValue({
@@ -101,11 +101,16 @@ describe("webhook route status handling", () => {
 
     await handler(req, res);
 
-    expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-123", true);
+    // Handler responds immediately with "accepted"
+    expect(res.statusCode).toBe(200);
+    expect(res.jsonBody).toEqual({ ok: true, action: "accepted" });
+
+    // Wait for background processing to complete (mocks resolve on microtask ticks)
+    await vi.waitFor(() => {
+      expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-123", true);
+    });
     expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-123");
     expect(gaggimate.saveProfile).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(200);
-    expect(res.jsonBody).toEqual({ ok: true, action: "profile_preferences_synced" });
   });
 
   it("ignores Archived status even if profile is selected/favorited", async () => {
@@ -126,16 +131,22 @@ describe("webhook route status handling", () => {
 
     await handler(req, res);
 
+    // Responds immediately; background processing fetches push data then ignores
+    expect(res.statusCode).toBe(200);
+    expect(res.jsonBody).toEqual({ ok: true, action: "accepted" });
+
+    // Wait for background to complete, then verify no device calls were made
+    await vi.waitFor(() => {
+      expect(notion.getProfilePushData).toHaveBeenCalledTimes(1);
+    });
     expect(notion.extractProfileIdFromJson).not.toHaveBeenCalled();
     expect(notion.getProfilePreferenceState).not.toHaveBeenCalled();
     expect(gaggimate.favoriteProfile).not.toHaveBeenCalled();
     expect(gaggimate.selectProfile).not.toHaveBeenCalled();
     expect(gaggimate.saveProfile).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(200);
-    expect(res.jsonBody).toEqual({ ok: true, action: "ignored", reason: "push status not actionable" });
   });
 
-  it("still pushes queued profiles", async () => {
+  it("still pushes queued profiles in background", async () => {
     const gaggimate = createMockGaggimate();
     const notion = createMockNotion();
     notion.getProfilePushData.mockResolvedValue({
@@ -158,9 +169,14 @@ describe("webhook route status handling", () => {
 
     await handler(req, res);
 
-    expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-queued", "Pushed", expect.any(String), true);
+    // Responds immediately
     expect(res.statusCode).toBe(200);
-    expect(res.jsonBody).toEqual({ ok: true, action: "profile_pushed" });
+    expect(res.jsonBody).toEqual({ ok: true, action: "accepted" });
+
+    // Wait for background push to complete
+    await vi.waitFor(() => {
+      expect(notion.updatePushStatus).toHaveBeenCalledWith("page-queued", "Pushed", expect.any(String), true);
+    });
+    expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
   });
 });

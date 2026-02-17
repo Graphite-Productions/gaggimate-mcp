@@ -57,19 +57,23 @@ async function main() {
   const gaggimate = new GaggiMateClient(config.gaggimate);
   const notion = new NotionClient(config.notion);
 
-  // Start HTTP server
-  const app = createServer(gaggimate, notion);
-  app.listen(config.http.port, () => {
-    console.log(`HTTP server listening on port ${config.http.port}`);
-  });
-
-  // Start shot poller
+  // Create shot poller (before server so health endpoint can read cached state)
   const shotPoller = new ShotPoller(gaggimate, notion, {
     intervalMs: config.sync.intervalMs,
     dataDir: config.data.dir,
     recentShotLookbackCount: config.sync.recentShotLookbackCount,
     brewTitleTimeZone: config.time.brewTitleTimeZone,
   });
+
+  // Start HTTP server
+  const app = createServer(gaggimate, notion, {
+    getSyncState: () => shotPoller.syncState,
+  });
+  app.listen(config.http.port, () => {
+    console.log(`HTTP server listening on port ${config.http.port}`);
+  });
+
+  // Start shot poller
   shotPoller.start();
 
   // Start profile reconciler
