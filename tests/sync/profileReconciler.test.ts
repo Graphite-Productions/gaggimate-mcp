@@ -89,16 +89,10 @@ describe("ProfileReconciler", () => {
 
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
     const queuedPayload = gaggimate.saveProfile.mock.calls[0][0];
-    expect(queuedPayload.phases[0]).toEqual(
-      expect.objectContaining({
-        valve: 1,
-        pump: {
-          target: "pressure",
-          pressure: 9,
-          flow: 0,
-        },
-      }),
-    );
+    // saveProfile receives the raw profile; normalization happens inside the client
+    expect(queuedPayload.label).toBe("Queued Profile");
+    expect(queuedPayload.temperature).toBe(93);
+    expect(queuedPayload.phases).toHaveLength(1);
     expect(notion.updateProfileJson).toHaveBeenCalledWith(
       "queued-page",
       expect.stringContaining("\"id\":\"device-123\""),

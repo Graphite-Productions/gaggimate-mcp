@@ -19,6 +19,19 @@ function isTimeoutError(error: unknown): boolean {
   return false;
 }
 
+interface WsRequestOptions {
+  /** Message type to send (e.g. "req:profiles:list") */
+  reqType: string;
+  /** Expected response type (e.g. "res:profiles:list") */
+  resType: string;
+  /** Additional fields to include in the outgoing message */
+  payload?: Record<string, any>;
+  /** Extract the result value from the response object */
+  extractResult: (response: any) => any;
+  /** Error prefix for readable error messages */
+  errorPrefix: string;
+}
+
 export class GaggiMateClient {
   private config: GaggiMateConfig;
 
@@ -38,6 +51,70 @@ export class GaggiMateClient {
     return this.config.protocol === "wss" ? "https" : "http";
   }
 
+  /**
+   * Send a single request/response over a fresh WebSocket connection.
+   * Handles connection lifecycle, timeouts, and error reporting.
+   */
+  private sendWsRequest<T>(options: WsRequestOptions): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(this.wsUrl);
+      const requestId = generateRequestId();
+      let timeoutHandle: NodeJS.Timeout | null = null;
+      let settled = false;
+
+      const cleanup = () => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
+      };
+
+      const settle = (fn: () => void) => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          fn();
+        }
+      };
+
+      timeoutHandle = setTimeout(() => {
+        settle(() => reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`)));
+      }, this.config.requestTimeout);
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({ tp: options.reqType, rid: requestId, ...options.payload }));
+      });
+
+      ws.on("message", (data: WebSocket.Data) => {
+        try {
+          const response = JSON.parse(data.toString());
+          if (response.tp === options.resType && response.rid === requestId) {
+            settle(() => {
+              if (response.error) {
+                reject(new Error(`${options.errorPrefix}: ${response.error}`));
+              } else {
+                resolve(options.extractResult(response));
+              }
+            });
+          }
+        } catch (error) {
+          settle(() => reject(new Error(`Failed to parse response: ${error}`)));
+        }
+      });
+
+      ws.on("error", (error) => {
+        settle(() => reject(new Error(`WebSocket error: ${error.message}`)));
+      });
+
+      ws.on("close", () => {
+        settle(() => reject(new Error("WebSocket closed unexpectedly")));
+      });
+    });
+  }
+
   /** Check if GaggiMate is reachable via HTTP */
   async isReachable(): Promise<boolean> {
     try {
@@ -54,430 +131,68 @@ export class GaggiMateClient {
 
   /** Fetch all profiles from GaggiMate via WebSocket */
   async fetchProfiles(): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsUrl);
-      const requestId = generateRequestId();
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
-        }
-      }, this.config.requestTimeout);
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: "req:profiles:list", rid: requestId }));
-      });
-
-      ws.on("message", (data: WebSocket.Data) => {
-        try {
-          const response = JSON.parse(data.toString());
-          if (response.tp === "res:profiles:list" && response.rid === requestId) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              if (response.error) {
-                reject(new Error(`GaggiMate API error: ${response.error}`));
-              } else {
-                resolve(response.profiles || []);
-              }
-            }
-          }
-        } catch (error) {
-          if (!resolved) {
-            resolved = true;
-            cleanup();
-            reject(new Error(`Failed to parse response: ${error}`));
-          }
-        }
-      });
-
-      ws.on("error", (error) => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`WebSocket error: ${error.message}`));
-        }
-      });
-
-      ws.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          reject(new Error("WebSocket closed unexpectedly"));
-        }
-      });
+    return this.sendWsRequest({
+      reqType: "req:profiles:list",
+      resType: "res:profiles:list",
+      extractResult: (res) => res.profiles || [],
+      errorPrefix: "GaggiMate API error",
     });
   }
 
   /** Fetch a specific profile by ID via WebSocket */
   async fetchProfile(profileId: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsUrl);
-      const requestId = generateRequestId();
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
-        }
-      }, this.config.requestTimeout);
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: "req:profiles:load", rid: requestId, id: profileId }));
-      });
-
-      ws.on("message", (data: WebSocket.Data) => {
-        try {
-          const response = JSON.parse(data.toString());
-          if (response.tp === "res:profiles:load" && response.rid === requestId) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              if (response.error) {
-                reject(new Error(`GaggiMate API error: ${response.error}`));
-              } else {
-                resolve(response.profile || null);
-              }
-            }
-          }
-        } catch (error) {
-          if (!resolved) {
-            resolved = true;
-            cleanup();
-            reject(new Error(`Failed to parse response: ${error}`));
-          }
-        }
-      });
-
-      ws.on("error", (error) => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`WebSocket error: ${error.message}`));
-        }
-      });
-
-      ws.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          reject(new Error("WebSocket closed unexpectedly"));
-        }
-      });
+    return this.sendWsRequest({
+      reqType: "req:profiles:load",
+      resType: "res:profiles:load",
+      payload: { id: profileId },
+      extractResult: (res) => res.profile || null,
+      errorPrefix: "GaggiMate API error",
     });
   }
 
-  /** Save a full profile (for pushing arbitrary profiles from Notion) */
+  /** Save a full profile to the device. Normalizes phase defaults before sending. */
   async saveProfile(profile: ProfileData): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsUrl);
-      const requestId = generateRequestId();
-      const normalizedProfile = normalizeProfileForGaggiMate(profile);
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
-        }
-      }, this.config.requestTimeout);
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: "req:profiles:save", rid: requestId, profile: normalizedProfile }));
-      });
-
-      ws.on("message", (data: WebSocket.Data) => {
-        try {
-          const response = JSON.parse(data.toString());
-          if (response.tp === "res:profiles:save" && response.rid === requestId) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              if (response.error) {
-                reject(new Error(`Failed to save profile: ${response.error}`));
-              } else {
-                resolve(response.profile || { success: true });
-              }
-            }
-          }
-        } catch (error) {
-          if (!resolved) {
-            resolved = true;
-            cleanup();
-            reject(new Error(`Failed to parse response: ${error}`));
-          }
-        }
-      });
-
-      ws.on("error", (error) => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`WebSocket error: ${error.message}`));
-        }
-      });
-
-      ws.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          reject(new Error("WebSocket closed unexpectedly"));
-        }
-      });
+    const normalizedProfile = normalizeProfileForGaggiMate(profile);
+    return this.sendWsRequest({
+      reqType: "req:profiles:save",
+      resType: "res:profiles:save",
+      payload: { profile: normalizedProfile },
+      extractResult: (res) => res.profile || { success: true },
+      errorPrefix: "Failed to save profile",
     });
   }
 
   /** Delete a profile by ID via WebSocket */
   async deleteProfile(profileId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsUrl);
-      const requestId = generateRequestId();
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
-        }
-      }, this.config.requestTimeout);
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: "req:profiles:delete", rid: requestId, id: profileId }));
-      });
-
-      ws.on("message", (data: WebSocket.Data) => {
-        try {
-          const response = JSON.parse(data.toString());
-          if (response.tp === "res:profiles:delete" && response.rid === requestId) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              if (response.error) {
-                reject(new Error(`Failed to delete profile: ${response.error}`));
-              } else {
-                resolve();
-              }
-            }
-          }
-        } catch (error) {
-          if (!resolved) {
-            resolved = true;
-            cleanup();
-            reject(new Error(`Failed to parse response: ${error}`));
-          }
-        }
-      });
-
-      ws.on("error", (error) => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`WebSocket error: ${error.message}`));
-        }
-      });
-
-      ws.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          reject(new Error("WebSocket closed unexpectedly"));
-        }
-      });
+    return this.sendWsRequest({
+      reqType: "req:profiles:delete",
+      resType: "res:profiles:delete",
+      payload: { id: profileId },
+      extractResult: () => undefined,
+      errorPrefix: "Failed to delete profile",
     });
   }
 
   /** Select a profile by ID via WebSocket */
   async selectProfile(profileId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsUrl);
-      const requestId = generateRequestId();
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
-        }
-      }, this.config.requestTimeout);
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: "req:profiles:select", rid: requestId, id: profileId }));
-      });
-
-      ws.on("message", (data: WebSocket.Data) => {
-        try {
-          const response = JSON.parse(data.toString());
-          if (response.tp === "res:profiles:select" && response.rid === requestId) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              if (response.error) {
-                reject(new Error(`Failed to select profile: ${response.error}`));
-              } else {
-                resolve();
-              }
-            }
-          }
-        } catch (error) {
-          if (!resolved) {
-            resolved = true;
-            cleanup();
-            reject(new Error(`Failed to parse response: ${error}`));
-          }
-        }
-      });
-
-      ws.on("error", (error) => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`WebSocket error: ${error.message}`));
-        }
-      });
-
-      ws.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          reject(new Error("WebSocket closed unexpectedly"));
-        }
-      });
+    return this.sendWsRequest({
+      reqType: "req:profiles:select",
+      resType: "res:profiles:select",
+      payload: { id: profileId },
+      extractResult: () => undefined,
+      errorPrefix: "Failed to select profile",
     });
   }
 
   /** Favorite or unfavorite a profile by ID via WebSocket */
   async favoriteProfile(profileId: string, favorite: boolean): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.wsUrl);
-      const requestId = generateRequestId();
-      const reqType = favorite ? "req:profiles:favorite" : "req:profiles:unfavorite";
-      const resType = favorite ? "res:profiles:favorite" : "res:profiles:unfavorite";
-      let timeoutHandle: NodeJS.Timeout | null = null;
-      let resolved = false;
-
-      const cleanup = () => {
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`Request timeout: No response from GaggiMate at ${this.wsUrl}`));
-        }
-      }, this.config.requestTimeout);
-
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ tp: reqType, rid: requestId, id: profileId }));
-      });
-
-      ws.on("message", (data: WebSocket.Data) => {
-        try {
-          const response = JSON.parse(data.toString());
-          if (response.tp === resType && response.rid === requestId) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              if (response.error) {
-                reject(new Error(`Failed to ${favorite ? "favorite" : "unfavorite"} profile: ${response.error}`));
-              } else {
-                resolve();
-              }
-            }
-          }
-        } catch (error) {
-          if (!resolved) {
-            resolved = true;
-            cleanup();
-            reject(new Error(`Failed to parse response: ${error}`));
-          }
-        }
-      });
-
-      ws.on("error", (error) => {
-        if (!resolved) {
-          resolved = true;
-          cleanup();
-          reject(new Error(`WebSocket error: ${error.message}`));
-        }
-      });
-
-      ws.on("close", () => {
-        if (!resolved) {
-          resolved = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          reject(new Error("WebSocket closed unexpectedly"));
-        }
-      });
+    const action = favorite ? "favorite" : "unfavorite";
+    return this.sendWsRequest({
+      reqType: `req:profiles:${action}`,
+      resType: `res:profiles:${action}`,
+      payload: { id: profileId },
+      extractResult: () => undefined,
+      errorPrefix: `Failed to ${action} profile`,
     });
   }
 

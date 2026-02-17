@@ -19,11 +19,17 @@ export class ShotPoller {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private connectivityWarningActive = false;
+  private state: SyncState;
 
   constructor(gaggimate: GaggiMateClient, notion: NotionClient, options: ShotPollerOptions) {
     this.gaggimate = gaggimate;
     this.notion = notion;
     this.options = options;
+    this.state = SyncState.load(options.dataDir);
+  }
+
+  get syncState(): SyncState {
+    return this.state;
   }
 
   start(): void {
@@ -63,13 +69,12 @@ export class ShotPoller {
     this.running = true;
 
     try {
-      const state = SyncState.load(this.options.dataDir);
+      const state = this.state;
 
       // Fetch shot history (sorted most recent first by indexToShotList)
       const shots = await this.gaggimate.fetchShotHistory();
       this.clearConnectivityWarning();
       if (shots.length === 0) {
-        this.running = false;
         return;
       }
 
@@ -97,7 +102,6 @@ export class ShotPoller {
         .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
 
       if (candidateShots.length === 0) {
-        this.running = false;
         return;
       }
 

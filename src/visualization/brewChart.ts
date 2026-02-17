@@ -14,6 +14,27 @@ import {
   type SeriesPoint,
 } from "./chartTheme.js";
 
+/** Iterative max across multiple series to avoid call stack overflow with large arrays */
+function seriesMax(...arrays: SeriesPoint[][]): number {
+  let max = -Infinity;
+  for (const arr of arrays) {
+    for (const p of arr) {
+      if (p.v > max) max = p.v;
+    }
+  }
+  return max === -Infinity ? 0 : max;
+}
+
+function seriesMaxT(...arrays: SeriesPoint[][]): number {
+  let max = -Infinity;
+  for (const arr of arrays) {
+    for (const p of arr) {
+      if (p.t > max) max = p.t;
+    }
+  }
+  return max === -Infinity ? 0 : max;
+}
+
 interface BrewSeries {
   label: string;
   color: string;
@@ -104,35 +125,17 @@ export function renderBrewChartSvg(shot: ShotData): string {
   const vRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "v");
   const vfRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "vf");
 
-  // Determine axis ranges
-  const totalDuration = Math.max(
-    1,
-    ...ctRaw.map((p) => p.t),
-  );
+  // Determine axis ranges (iterative to avoid call-stack overflow with large sample arrays)
+  const totalDuration = Math.max(1, seriesMaxT(ctRaw));
 
-  const maxTemp = Math.max(
-    80,
-    ...ctRaw.map((p) => p.v),
-    ...ttRaw.map((p) => p.v),
-  );
+  const maxTemp = Math.max(80, seriesMax(ctRaw, ttRaw));
   // Round temp ceiling to nearest 10
   const tempCeil = Math.ceil(maxTemp / 10) * 10;
 
-  const maxPressureFlow = Math.max(
-    10,
-    ...cpRaw.map((p) => p.v),
-    ...tpRaw.map((p) => p.v),
-    ...flRaw.map((p) => p.v),
-    ...pfRaw.map((p) => p.v),
-    ...tfRaw.map((p) => p.v),
-    ...vfRaw.map((p) => p.v),
-  );
+  const maxPressureFlow = Math.max(10, seriesMax(cpRaw, tpRaw, flRaw, pfRaw, tfRaw, vfRaw));
   const pfCeil = Math.ceil(maxPressureFlow);
 
-  const maxWeight = Math.max(
-    10,
-    ...vRaw.map((p) => p.v),
-  );
+  const maxWeight = Math.max(10, seriesMax(vRaw));
   const weightCeil = Math.ceil(maxWeight / 10) * 10;
 
   // Scale functions

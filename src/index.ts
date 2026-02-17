@@ -5,7 +5,41 @@ import { ShotPoller } from "./sync/shotPoller.js";
 import { ProfileReconciler } from "./sync/profileReconciler.js";
 import { NotionClient } from "./notion/client.js";
 
+function validateConfig(): void {
+  const errors: string[] = [];
+
+  if (!config.notion.apiKey) {
+    errors.push("NOTION_API_KEY is required");
+  }
+  if (!config.notion.brewsDbId) {
+    errors.push("NOTION_BREWS_DB_ID is required");
+  }
+  if (!config.notion.profilesDbId) {
+    errors.push("NOTION_PROFILES_DB_ID is required");
+  }
+  if (!config.gaggimate.host) {
+    errors.push("GAGGIMATE_HOST is required");
+  }
+
+  if (errors.length > 0) {
+    console.error("Configuration errors:");
+    for (const error of errors) {
+      console.error(`  - ${error}`);
+    }
+    process.exit(1);
+  }
+
+  if (!config.notion.beansDbId) {
+    console.warn("NOTION_BEANS_DB_ID is not set — bean queries will fail");
+  }
+  if (!config.webhook.secret) {
+    console.warn("WEBHOOK_SECRET is not set — webhook signature verification is disabled");
+  }
+}
+
 async function main() {
+  validateConfig();
+
   console.log("GaggiMate Notion Bridge starting...");
   console.log(`  GaggiMate: ${config.gaggimate.protocol}://${config.gaggimate.host}`);
   console.log(`  HTTP port: ${config.http.port}`);

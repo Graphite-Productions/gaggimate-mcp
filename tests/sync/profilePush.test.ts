@@ -38,16 +38,10 @@ describe("pushProfileToGaggiMate", () => {
 
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
     const pushedProfile = gaggimate.saveProfile.mock.calls[0][0];
-    expect(pushedProfile.phases[0]).toEqual(
-      expect.objectContaining({
-        valve: 1,
-        pump: {
-          target: "pressure",
-          pressure: 9,
-          flow: 0,
-        },
-      }),
-    );
+    // saveProfile receives the raw profile; normalization happens inside the client
+    expect(pushedProfile.label).toBe("My Profile");
+    expect(pushedProfile.temperature).toBe(93);
+    expect(pushedProfile.phases).toHaveLength(1);
     expect(notion.updatePushStatus).toHaveBeenCalledWith("page-1", "Pushed", expect.any(String), true);
     expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("profile-id", false);
     expect(gaggimate.selectProfile).not.toHaveBeenCalled();

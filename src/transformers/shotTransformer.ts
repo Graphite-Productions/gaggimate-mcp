@@ -108,27 +108,50 @@ export function transformShotForAI(shot: ShotData, includeFullCurve: boolean = f
   return result;
 }
 
+function safeMin(values: number[]): number {
+  if (values.length === 0) return 0;
+  let min = values[0];
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] < min) min = values[i];
+  }
+  return min;
+}
+
+function safeMax(values: number[]): number {
+  if (values.length === 0) return 0;
+  let max = values[0];
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > max) max = values[i];
+  }
+  return max;
+}
+
+function safeAvg(values: number[]): number {
+  if (values.length === 0) return 0;
+  let sum = 0;
+  for (const v of values) sum += v;
+  return sum / values.length;
+}
+
 function calculateSummary(shot: ShotData): ShotSummary {
   const samples = shot.samples;
-  
+
   // Temperature statistics
   const temperatures = samples.map(s => s.ct || 0).filter(t => t > 0);
   const targetTemps = samples.map(s => s.tt || 0).filter(t => t > 0);
-  
+
   // Pressure statistics
   const pressures = samples.map(s => s.cp || 0);
-  const maxPressure = Math.max(...pressures);
+  const maxPressure = safeMax(pressures);
   const peakPressureIndex = pressures.indexOf(maxPressure);
-  const peakPressureTime = (samples[peakPressureIndex]?.t || 0) / 1000;
-  
+  const peakPressureTime = peakPressureIndex >= 0 ? (samples[peakPressureIndex]?.t || 0) / 1000 : 0;
+
   // Flow statistics
   const flows = samples.map(s => s.pf || 0); // Use puck flow as it's the actual flow through coffee
   const totalVolume = calculateTotalVolume(samples, shot.sampleInterval);
   const nonZeroFlows = flows.filter(f => f > 0);
-  const avgFlow = nonZeroFlows.length > 0 
-    ? nonZeroFlows.reduce((a, b) => a + b, 0) / nonZeroFlows.length 
-    : 0;
-  
+  const avgFlow = safeAvg(nonZeroFlows);
+
   // Find time to first drip (first positive weight or flow)
   let timeToFirstDrip: number | null = null;
   for (let i = 0; i < samples.length; i++) {
@@ -137,40 +160,40 @@ function calculateSummary(shot: ShotData): ShotSummary {
       break;
     }
   }
-  
+
   // Calculate preinfusion time (based on phases if available)
   let preinfusionTime = 0;
   if (shot.phases.length > 0) {
-    // Find the end of preinfusion phases (usually phase 0, 1, and sometimes 2 for soak)
-    for (const phase of shot.phases) {
-      if (phase.phaseName.toLowerCase().includes('preinfusion') || 
+    for (let i = 0; i < shot.phases.length; i++) {
+      const phase = shot.phases[i];
+      if (phase.phaseName.toLowerCase().includes('preinfusion') ||
           phase.phaseName.toLowerCase().includes('soak')) {
-        const phaseEndIndex = shot.phases.indexOf(phase) < shot.phases.length - 1 
-          ? shot.phases[shot.phases.indexOf(phase) + 1].sampleIndex 
+        const phaseEndIndex = i < shot.phases.length - 1
+          ? shot.phases[i + 1].sampleIndex
           : shot.samples.length;
         const phaseEndTime = (shot.samples[phaseEndIndex - 1]?.t || 0) / 1000;
         preinfusionTime = Math.max(preinfusionTime, phaseEndTime);
       }
     }
   }
-  
+
   return {
     temperature: {
-      min_celsius: Math.min(...temperatures),
-      max_celsius: Math.max(...temperatures),
-      average_celsius: temperatures.reduce((a, b) => a + b, 0) / temperatures.length,
-      target_average: targetTemps.reduce((a, b) => a + b, 0) / targetTemps.length,
+      min_celsius: safeMin(temperatures),
+      max_celsius: safeMax(temperatures),
+      average_celsius: safeAvg(temperatures),
+      target_average: safeAvg(targetTemps),
     },
     pressure: {
-      min_bar: Math.min(...pressures),
+      min_bar: safeMin(pressures),
       max_bar: maxPressure,
-      average_bar: pressures.reduce((a, b) => a + b, 0) / pressures.length,
+      average_bar: safeAvg(pressures),
       peak_time_seconds: peakPressureTime,
     },
     flow: {
       total_volume_ml: totalVolume,
       average_flow_rate_ml_s: avgFlow,
-      peak_flow_ml_s: Math.max(...flows),
+      peak_flow_ml_s: safeMax(flows),
       time_to_first_drip_seconds: timeToFirstDrip,
     },
     extraction: {
@@ -246,28 +269,24 @@ function processPhases(shot: ShotData): PhaseData[] {
       start_time_seconds: startTime,
       duration_seconds: endTime - startTime,
       sample_count: phaseSamples.length,
-      avg_temperature_c: temperatures.length > 0 
-        ? Math.round(temperatures.reduce((a, b) => a + b, 0) / temperatures.length * 10) / 10
-        : 0,
-      avg_pressure_bar: pressures.length > 0
-        ? Math.round(pressures.reduce((a, b) => a + b, 0) / pressures.length * 10) / 10
-        : 0,
+      avg_temperature_c: Math.round(safeAvg(temperatures) * 10) / 10,
+      avg_pressure_bar: Math.round(safeAvg(pressures) * 10) / 10,
       total_flow_ml: totalFlow,
       samples: representativeSamples,
     });
   }
-  
+
   // Handle case where there are no phases defined
   if (phases.length === 0 && samples.length > 0) {
     // Create a single phase for the entire shot
     const temperatures = samples.map(s => s.ct || 0).filter(t => t > 0);
     const pressures = samples.map(s => s.cp || 0);
     const totalFlow = calculateTotalVolume(samples, shot.sampleInterval);
-    
+
     const representativeSamples: TransformedSample[] = [];
     const indices = [0, Math.floor(samples.length / 2), samples.length - 1];
     const uniqueIndices = [...new Set(indices)];
-    
+
     for (const idx of uniqueIndices) {
       const sample = samples[idx];
       if (sample) {
@@ -280,19 +299,15 @@ function processPhases(shot: ShotData): PhaseData[] {
         });
       }
     }
-    
+
     phases.push({
       name: 'extraction',
       phase_number: 0,
       start_time_seconds: 0,
       duration_seconds: shot.duration / 1000,
       sample_count: samples.length,
-      avg_temperature_c: temperatures.length > 0
-        ? Math.round(temperatures.reduce((a, b) => a + b, 0) / temperatures.length * 10) / 10
-        : 0,
-      avg_pressure_bar: pressures.length > 0
-        ? Math.round(pressures.reduce((a, b) => a + b, 0) / pressures.length * 10) / 10
-        : 0,
+      avg_temperature_c: Math.round(safeAvg(temperatures) * 10) / 10,
+      avg_pressure_bar: Math.round(safeAvg(pressures) * 10) / 10,
       total_flow_ml: totalFlow,
       samples: representativeSamples,
     });

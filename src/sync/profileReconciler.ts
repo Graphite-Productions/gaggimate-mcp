@@ -1,5 +1,4 @@
 import type { GaggiMateClient } from "../gaggimate/client.js";
-import { normalizeProfileForGaggiMate } from "../gaggimate/profileNormalization.js";
 import type { ExistingProfileRecord, NotionClient } from "../notion/client.js";
 import { isConnectivityError, summarizeConnectivityError } from "../utils/connectivity.js";
 
@@ -218,10 +217,9 @@ export class ProfileReconciler {
         return;
       }
 
-      const normalizedProfile = normalizeProfileForGaggiMate(parsedProfile);
-      const savedResult = await this.gaggimate.saveProfile(normalizedProfile);
+      const savedResult = await this.gaggimate.saveProfile(parsedProfile);
       this.savedThisRun += 1;
-      const savedId = this.notion.extractProfileId(savedResult) || this.notion.extractProfileId(normalizedProfile);
+      const savedId = this.notion.extractProfileId(savedResult) || this.notion.extractProfileId(parsedProfile);
       if (savedId && parsedProfile.id !== savedId) {
         parsedProfile.id = savedId;
         await this.notion.updateProfileJson(notionProfile.pageId, JSON.stringify(parsedProfile));
@@ -268,8 +266,7 @@ export class ProfileReconciler {
           return;
         }
 
-        const normalizedProfile = normalizeProfileForGaggiMate(notionProfileJson);
-        await this.gaggimate.saveProfile(normalizedProfile);
+        await this.gaggimate.saveProfile(notionProfileJson);
         this.savedThisRun += 1;
         await this.applyFavoriteAndSelectedSync(notionProfile, notionProfileJson, { forceSelect: notionProfile.selected });
         const now = new Date().toISOString();
@@ -297,8 +294,7 @@ export class ProfileReconciler {
           return;
         }
 
-        const normalizedProfile = normalizeProfileForGaggiMate(notionProfileJson);
-        await this.gaggimate.saveProfile(normalizedProfile);
+        await this.gaggimate.saveProfile(notionProfileJson);
         this.savedThisRun += 1;
         console.log(`Profile ${notionProfile.pageId}: reconciled device profile from Notion JSON`);
       } catch (error) {
