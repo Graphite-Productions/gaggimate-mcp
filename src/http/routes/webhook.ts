@@ -3,7 +3,21 @@ import { createHmac, timingSafeEqual } from "crypto";
 import type { GaggiMateClient } from "../../gaggimate/client.js";
 import type { NotionClient } from "../../notion/client.js";
 import { config } from "../../config.js";
+import { syncFavoriteAndSelectedFromNotion } from "../../sync/profilePreferenceSync.js";
 import { pushProfileToGaggiMate } from "../../sync/profilePush.js";
+
+type WebhookProfileAction = "push_queued" | "sync_pushed_preferences" | "ignore";
+
+export function resolveWebhookProfileAction(pushStatus: string | null): WebhookProfileAction {
+  // Push status dominates all other profile flags/properties.
+  if (pushStatus === "Queued") {
+    return "push_queued";
+  }
+  if (pushStatus === "Pushed") {
+    return "sync_pushed_preferences";
+  }
+  return "ignore";
+}
 
 export function isWebhookSecretConfigured(secret: string): boolean {
   return secret.trim().length > 0;
@@ -105,10 +119,11 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
-      // Fetch the page and only act when current status is Queued.
+      // Fetch page status first. Status dominates all other behavior.
       const { profileJson, pushStatus } = await notion.getProfilePushData(pageId);
-      if (pushStatus !== "Queued") {
-        res.json({ ok: true, action: "ignored", reason: "push status not queued" });
+      const action = resolveWebhookProfileAction(pushStatus);
+      if (action === "ignore") {
+        res.json({ ok: true, action: "ignored", reason: "push status not actionable" });
         return;
       }
 
@@ -118,10 +133,24 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
-      // Attempt to push profile
-      await pushProfileToGaggiMate(gaggimate, notion, pageId, profileJson);
+      if (action === "push_queued") {
+        // Queued means push now.
+        await pushProfileToGaggiMate(gaggimate, notion, pageId, profileJson);
+        res.json({ ok: true, action: "profile_pushed" });
+        return;
+      }
 
-      res.json({ ok: true, action: "profile_pushed" });
+      // Pushed means profile already exists on device; sync checkbox state immediately.
+      const profileId = notion.extractProfileIdFromJson(profileJson);
+      if (!profileId) {
+        console.warn(`Webhook for page ${pageId}: Pushed profile has no JSON id, cannot sync favorite/selected`);
+        res.json({ ok: true, action: "ignored", reason: "pushed profile missing id" });
+        return;
+      }
+
+      await syncFavoriteAndSelectedFromNotion(gaggimate, notion, pageId, profileId);
+
+      res.json({ ok: true, action: "profile_preferences_synced" });
     } catch (error) {
       console.error("Webhook processing error:", error);
       res.status(500).json({
