@@ -383,21 +383,26 @@ export class ProfileReconciler {
     }
 
     const deviceFavorite = Boolean(profileOnDevice?.favorite);
-    if (deviceFavorite !== notionProfile.favorite) {
-      try {
-        await this.gaggimate.favoriteProfile(deviceId, notionProfile.favorite);
-      } catch (error) {
-        console.warn(`Profile ${notionProfile.pageId}: favorite sync failed:`, error);
-      }
-    }
-
     const deviceSelected = Boolean(profileOnDevice?.selected);
+
+    // Both operations are independent — run in parallel to minimize device round-trips.
+    const tasks: Promise<void>[] = [];
+    if (deviceFavorite !== notionProfile.favorite) {
+      tasks.push(
+        this.gaggimate.favoriteProfile(deviceId, notionProfile.favorite).catch((error) => {
+          console.warn(`Profile ${notionProfile.pageId}: favorite sync failed:`, error);
+        }),
+      );
+    }
     if (notionProfile.selected && (options?.forceSelect || !deviceSelected)) {
-      try {
-        await this.gaggimate.selectProfile(deviceId);
-      } catch (error) {
-        console.warn(`Profile ${notionProfile.pageId}: select sync failed:`, error);
-      }
+      tasks.push(
+        this.gaggimate.selectProfile(deviceId).catch((error) => {
+          console.warn(`Profile ${notionProfile.pageId}: select sync failed:`, error);
+        }),
+      );
+    }
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
     }
   }
 

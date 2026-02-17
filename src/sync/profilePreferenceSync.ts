@@ -14,8 +14,10 @@ export async function syncFavoriteAndSelectedFromNotion(
   preferenceState?: ProfilePreferenceState,
 ): Promise<void> {
   const { favorite, selected } = preferenceState ?? await notion.getProfilePreferenceState(pageId);
-  await gaggimate.favoriteProfile(profileId, favorite);
+  // Both operations are independent — run in parallel to minimize device round-trips.
+  const tasks: Promise<void>[] = [gaggimate.favoriteProfile(profileId, favorite)];
   if (selected) {
-    await gaggimate.selectProfile(profileId);
+    tasks.push(gaggimate.selectProfile(profileId));
   }
+  await Promise.all(tasks);
 }
