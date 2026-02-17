@@ -41,19 +41,21 @@ The database titles can vary, but property names and types below should match ex
 | Beans | Relation -> Beans | No | two-way relation |
 | Profile | Relation -> Profiles | No | two-way relation |
 | Grind Setting | Number | No | user-managed |
-| Dose In | Number | No | grams |
-| Yield Out | Number | No | grams |
+| Dose In | Number | No | user-managed (grams in) |
+| Yield Out | Number | No | bridge-written (grams out from scale) |
 | Ratio | Formula | No | `prop("Yield Out") / prop("Dose In")` |
-| Brew Time | Number | No | seconds |
-| Brew Temp | Number | No | C |
-| Pre-infusion Time | Number | No | seconds |
-| Peak Pressure | Number | No | bar |
-| Total Volume | Number | No | mL |
+| Brew Time | Number | No | bridge-written (seconds) |
+| Brew Temp | Number | No | bridge-written (°C average) |
+| Pre-infusion Time | Number | No | bridge-written (seconds) |
+| Peak Pressure | Number | No | bridge-written (bar) |
+| Total Volume | Number | No | bridge-written (mL) |
 | Bean Age | Formula | No | depends on Bean relation |
 | Taste Notes | Text | No | user-managed |
 | Channeling | Checkbox | No | user-managed |
-| Source | Select | No | `Auto` or `Manual` |
-| Notes | Text | No | optional |
+| Source | Select | No | bridge-written (`Auto` or `Manual`) |
+| Shot JSON | Text | No | bridge-written (full transformed shot data) |
+| Brew Profile | Files | No | bridge-written (brew chart SVG) |
+| Notes | Text | No | user-managed |
 
 ### Profiles Database
 
