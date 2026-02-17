@@ -4,6 +4,7 @@ import {
   COLOR_FAMILIES,
   escapeXml,
   toPath,
+  toAreaPath,
   renderBackground,
   renderGrid,
   renderXAxis,
@@ -23,6 +24,17 @@ function seriesMax(...arrays: SeriesPoint[][]): number {
     }
   }
   return max === -Infinity ? 0 : max;
+}
+
+/** Iterative min across multiple series */
+function seriesMin(...arrays: SeriesPoint[][]): number {
+  let min = Infinity;
+  for (const arr of arrays) {
+    for (const p of arr) {
+      if (p.v < min) min = p.v;
+    }
+  }
+  return min === Infinity ? 0 : min;
 }
 
 function seriesMaxT(...arrays: SeriesPoint[][]): number {
@@ -78,7 +90,6 @@ function downsample(points: SeriesPoint[], maxPoints: number): SeriesPoint[] {
 
 function buildTimeSeries(
   samples: ShotSample[],
-  sampleIntervalMs: number,
   field: keyof ShotSample,
 ): SeriesPoint[] {
   const points: SeriesPoint[] = [];
@@ -121,15 +132,15 @@ export function renderBrewChartSvg(shot: ShotData): string {
   const maxPts = 400;
 
   // Build raw series
-  const ctRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "ct");
-  const ttRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "tt");
-  const cpRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "cp");
-  const tpRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "tp");
-  const flRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "fl");
-  const pfRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "pf");
-  const tfRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "tf");
-  const vRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "v");
-  const vfRaw = buildTimeSeries(shot.samples, shot.sampleInterval, "vf");
+  const ctRaw = buildTimeSeries(shot.samples, "ct");
+  const ttRaw = buildTimeSeries(shot.samples, "tt");
+  const cpRaw = buildTimeSeries(shot.samples, "cp");
+  const tpRaw = buildTimeSeries(shot.samples, "tp");
+  const flRaw = buildTimeSeries(shot.samples, "fl");
+  const pfRaw = buildTimeSeries(shot.samples, "pf");
+  const tfRaw = buildTimeSeries(shot.samples, "tf");
+  const vRaw = buildTimeSeries(shot.samples, "v");
+  const vfRaw = buildTimeSeries(shot.samples, "vf");
 
   // Determine axis ranges (iterative to avoid call-stack overflow with large sample arrays)
   const totalDuration = Math.max(1, seriesMaxT(ctRaw));
@@ -137,6 +148,13 @@ export function renderBrewChartSvg(shot: ShotData): string {
   const maxTemp = Math.max(80, seriesMax(ctRaw, ttRaw));
   // Round temp ceiling to nearest 10
   const tempCeil = Math.ceil(maxTemp / 10) * 10;
+
+  // Floor the temperature axis so variation is visible — only if machine is at temp (>60°C).
+  // Use 5°C below the lowest observed temperature, clamped to at least 60°C.
+  const minObservedTemp = seriesMin(ctRaw);
+  const tempFloor = minObservedTemp > 60
+    ? Math.max(60, Math.floor(minObservedTemp / 5) * 5 - 5)
+    : 0;
 
   const maxPressureFlow = Math.max(10, seriesMax(cpRaw, tpRaw, flRaw, pfRaw, tfRaw, vfRaw));
   const pfCeil = Math.ceil(maxPressureFlow);
@@ -146,15 +164,20 @@ export function renderBrewChartSvg(shot: ShotData): string {
 
   // Scale functions
   const xScale = (t: number) => margin.left + (t / totalDuration) * chartW;
-  const yTemp = (v: number) => margin.top + chartH - (v / tempCeil) * chartH;
+  const yTemp = (v: number) =>
+    margin.top + chartH - ((v - tempFloor) / (tempCeil - tempFloor)) * chartH;
   const yPF = (v: number) => margin.top + chartH - (v / pfCeil) * chartH;
   const yWeight = (v: number) => margin.top + chartH - (v / weightCeil) * chartH;
 
+  // Pre-downsample primary series used for both the area fill and the line
+  const ctPoints = downsample(ctRaw, maxPts);
+  const cpPoints = downsample(cpRaw, maxPts);
+
   // Define all series
   const series: BrewSeries[] = [
-    { label: "Temp", color: COLOR_FAMILIES.temperature.primary, points: downsample(ctRaw, maxPts), width: T.solidWidth, axis: "left" },
+    { label: "Temp", color: COLOR_FAMILIES.temperature.primary, points: ctPoints, width: T.solidWidth, axis: "left" },
     { label: "Target Temp", color: COLOR_FAMILIES.temperature.primary, points: downsample(ttRaw, maxPts), width: T.dashedWidth, dashed: true, axis: "left" },
-    { label: "Pressure", color: COLOR_FAMILIES.pressure.primary, points: downsample(cpRaw, maxPts), width: T.solidWidth, axis: "right" },
+    { label: "Pressure", color: COLOR_FAMILIES.pressure.primary, points: cpPoints, width: T.solidWidth, axis: "right" },
     { label: "Target Pressure", color: COLOR_FAMILIES.pressure.primary, points: downsample(tpRaw, maxPts), width: T.dashedWidth, dashed: true, axis: "right" },
     { label: "Pump Flow", color: COLOR_FAMILIES.flow.primary, points: downsample(flRaw, maxPts), width: T.solidWidth, axis: "right" },
     { label: "Puck Flow", color: COLOR_FAMILIES.flow.secondary, points: downsample(pfRaw, maxPts), width: 1.5, axis: "right" },
@@ -219,10 +242,13 @@ export function renderBrewChartSvg(shot: ShotData): string {
   ${renderGrid(margin, chartW, chartH, xTickCount, yTickCount)}
   ${renderAxisLines(margin, chartW, chartH)}
 
+  <path d="${toAreaPath(ctPoints, xScale, yTemp, margin.top + chartH)}" fill="${COLOR_FAMILIES.temperature.primary}" opacity="0.10" />
+  <path d="${toAreaPath(cpPoints, xScale, yPF, margin.top + chartH)}" fill="${COLOR_FAMILIES.pressure.primary}" opacity="0.08" />
+
   ${paths}
 
   ${renderXAxis(margin, chartW, chartH, totalDuration, xTickCount)}
-  ${renderYAxis("left", margin, chartW, chartH, tempCeil, "Temperature (\u00B0C)", yTickCount)}
+  ${renderYAxis("left", margin, chartW, chartH, tempCeil, "Temperature (\u00B0C)", yTickCount, tempFloor)}
   ${renderYAxis("right", margin, chartW, chartH, pfCeil, "Pressure / Flow", yTickCount)}
   ${renderYAxis("far-right", margin, chartW, chartH, weightCeil, "Weight (g)", yTickCount)}
 

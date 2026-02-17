@@ -59,6 +59,25 @@ export function toPath(
   return path;
 }
 
+/** Returns a closed SVG path tracing the series then dropping to baselineY — used for area fills. */
+export function toAreaPath(
+  points: SeriesPoint[],
+  x: (t: number) => number,
+  y: (v: number) => number,
+  baselineY: number,
+): string {
+  if (points.length === 0) return "";
+  const first = points[0];
+  const last = points[points.length - 1];
+  let d = `M ${x(first.t).toFixed(2)} ${baselineY.toFixed(2)}`;
+  d += ` L ${x(first.t).toFixed(2)} ${y(first.v).toFixed(2)}`;
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${x(points[i].t).toFixed(2)} ${y(points[i].v).toFixed(2)}`;
+  }
+  d += ` L ${x(last.t).toFixed(2)} ${baselineY.toFixed(2)} Z`;
+  return d;
+}
+
 export function renderBackground(width: number, height: number): string {
   const T = CHART_THEME;
   const pad = 24;
@@ -122,6 +141,7 @@ export function renderYAxis(
   maxVal: number,
   unit: string,
   tickCount: number,
+  minVal = 0,
 ): string {
   const T = CHART_THEME;
   const ticks: string[] = [];
@@ -141,9 +161,10 @@ export function renderYAxis(
   }
 
   for (let i = 0; i <= tickCount; i++) {
-    const value = (maxVal / tickCount) * i;
+    const value = minVal + ((maxVal - minVal) / tickCount) * i;
     const py = margin.top + chartH - (chartH / tickCount) * i;
-    const label = maxVal >= 10 ? Math.round(value).toString() : value.toFixed(1);
+    const range = maxVal - minVal;
+    const label = range >= 10 ? Math.round(value).toString() : value.toFixed(1);
     ticks.push(
       `<text x="${xPos.toFixed(2)}" y="${(py + 5).toFixed(2)}" font-size="13" font-family="${T.fontFamily}" text-anchor="${anchor}" fill="${T.labelFill}">${label}</text>`,
     );
@@ -225,10 +246,13 @@ export function renderPhases(
       );
     }
 
-    // Phase label
-    parts.push(
-      `<text x="${(x1 + 8).toFixed(2)}" y="${(margin.top + 16).toFixed(2)}" font-size="11" font-family="${T.fontFamily}" fill="${T.phaseLabelFill}">${escapeXml(phase.name)}</text>`,
-    );
+    // Phase label — omit if phase is too narrow to fit the text legibly
+    const approxLabelWidth = phase.name.length * 6.5 + 8;
+    if (x2 - x1 > approxLabelWidth) {
+      parts.push(
+        `<text x="${(x1 + 8).toFixed(2)}" y="${(margin.top + 16).toFixed(2)}" font-size="11" font-family="${T.fontFamily}" fill="${T.phaseLabelFill}">${escapeXml(phase.name)}</text>`,
+      );
+    }
   }
   return parts.join("\n");
 }

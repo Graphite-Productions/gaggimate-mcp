@@ -4,6 +4,7 @@ import {
   escapeXml,
   clamp,
   toPath,
+  toAreaPath,
   renderBackground,
   renderGrid,
   renderXAxis,
@@ -192,6 +193,7 @@ export function renderProfileChartSvg(profile: ChartProfile): string {
   ${renderGrid(margin, chartW, chartH, xTickCount, yTickCount)}
   ${renderAxisLines(margin, chartW, chartH)}
 
+  <path d="${toAreaPath(pressure, x, yPressure, margin.top + chartH)}" fill="${pressureColor}" opacity="0.10" />
   <path d="${pressurePath}" fill="none" stroke="${pressureColor}" stroke-width="${T.solidWidth}" stroke-linecap="round" stroke-linejoin="round" />
   <path d="${flowPath}" fill="none" stroke="${flowColor}" stroke-width="${T.dashedWidth}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${T.dashArray}" />
 
