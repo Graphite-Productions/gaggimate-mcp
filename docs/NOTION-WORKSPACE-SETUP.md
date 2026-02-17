@@ -127,6 +127,7 @@ User/AI-managed fields in `Profiles`:
 
 - If a `Pushed` profile differs from device, bridge pushes Notion JSON to device.
 - Device-only profiles are imported as `Draft`.
+- Webhook pushes (`Queued`) also apply `Favorite`/`Selected` immediately after a successful save.
 - Archived non-utility profiles are deleted from device.
 - Destructive delete behavior can be disabled with `PROFILE_RECONCILE_DELETE_ENABLED=false`.
 - Deletes are rate-limited per cycle by `PROFILE_RECONCILE_DELETE_LIMIT_PER_RUN` (default `3`) as a safety guard.

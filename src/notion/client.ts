@@ -245,6 +245,18 @@ export class NotionClient {
     return { profileJson, pushStatus };
   }
 
+  /** Read Favorite/Selected checkbox state from a profile page */
+  async getProfilePreferenceState(pageId: string): Promise<{ favorite: boolean; selected: boolean }> {
+    const page = await this.client.pages.retrieve({ page_id: pageId }) as any;
+    const favoriteProp = page.properties?.Favorite;
+    const selectedProp = page.properties?.Selected;
+
+    return {
+      favorite: favoriteProp?.type === "checkbox" ? Boolean(favoriteProp.checkbox) : false,
+      selected: selectedProp?.type === "checkbox" ? Boolean(selectedProp.checkbox) : false,
+    };
+  }
+
   /** Create a Draft profile page from a device profile (auto-import) */
   async createDraftProfile(profile: any): Promise<string> {
     const profileName = typeof profile?.label === "string" ? profile.label.trim() : "";
