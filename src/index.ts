@@ -13,6 +13,7 @@ async function main() {
   console.log(`  Profile reconciler: ${config.sync.profileReconcileEnabled}`);
   if (config.sync.profileReconcileEnabled) {
     console.log(`  Profile reconcile interval: ${config.sync.profileReconcileIntervalMs}ms`);
+    console.log(`  Profile delete limit per reconcile: ${config.sync.profileReconcileDeleteLimitPerRun}`);
   }
   console.log(`  Brew title time zone: ${config.time.brewTitleTimeZone}`);
 
@@ -40,6 +41,7 @@ async function main() {
   if (config.sync.profileReconcileEnabled) {
     profileReconciler = new ProfileReconciler(gaggimate, notion, {
       intervalMs: config.sync.profileReconcileIntervalMs,
+      maxDeletesPerRun: config.sync.profileReconcileDeleteLimitPerRun,
     });
     profileReconciler.start();
   }

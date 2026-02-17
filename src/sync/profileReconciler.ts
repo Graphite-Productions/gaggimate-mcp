@@ -3,6 +3,7 @@ import type { ExistingProfileRecord, NotionClient } from "../notion/client.js";
 
 interface ProfileReconcilerOptions {
   intervalMs: number;
+  maxDeletesPerRun: number;
 }
 
 export class ProfileReconciler {
@@ -11,6 +12,8 @@ export class ProfileReconciler {
   private options: ProfileReconcilerOptions;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private deletedThisRun = 0;
+  private deleteLimitWarned = false;
 
   constructor(gaggimate: GaggiMateClient, notion: NotionClient, options: ProfileReconcilerOptions) {
     this.gaggimate = gaggimate;
@@ -36,6 +39,8 @@ export class ProfileReconciler {
   private async reconcile(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    this.deletedThisRun = 0;
+    this.deleteLimitWarned = false;
 
     try {
       let deviceProfiles: any[];
@@ -302,9 +307,21 @@ export class ProfileReconciler {
       return;
     }
 
+    const maxDeletesPerRun = Math.max(0, Math.floor(this.options.maxDeletesPerRun));
+    if (this.deletedThisRun >= maxDeletesPerRun) {
+      if (!this.deleteLimitWarned) {
+        console.error(
+          `Profile reconciler: delete limit reached (${maxDeletesPerRun} per cycle), skipping additional archived deletes`,
+        );
+        this.deleteLimitWarned = true;
+      }
+      return;
+    }
+
     try {
       await this.gaggimate.deleteProfile(deviceId);
       await this.notion.updatePushStatus(notionProfile.pageId, "Archived", undefined, false);
+      this.deletedThisRun += 1;
       console.log(`Profile ${notionProfile.pageId}: deleted from device`);
     } catch (error) {
       console.error(`Profile ${notionProfile.pageId}: delete failed:`, error);

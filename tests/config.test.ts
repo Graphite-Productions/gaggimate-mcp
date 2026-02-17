@@ -19,5 +19,6 @@ describe("config", () => {
     expect(config.sync.intervalMs).toBe(30000);
     expect(config.sync.profileReconcileEnabled).toBe(true);
     expect(config.sync.profileReconcileIntervalMs).toBe(30000);
+    expect(config.sync.profileReconcileDeleteLimitPerRun).toBe(3);
   });
 });

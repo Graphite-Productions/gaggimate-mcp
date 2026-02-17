@@ -51,8 +51,11 @@ function createMockNotion() {
   };
 }
 
-async function runReconcile(gaggimate: any, notion: any): Promise<void> {
-  const reconciler = new ProfileReconciler(gaggimate, notion, { intervalMs: 1000 });
+async function runReconcile(gaggimate: any, notion: any, overrides?: { maxDeletesPerRun?: number }): Promise<void> {
+  const reconciler = new ProfileReconciler(gaggimate, notion, {
+    intervalMs: 1000,
+    maxDeletesPerRun: overrides?.maxDeletesPerRun ?? 3,
+  });
   await (reconciler as any).reconcile();
 }
 
@@ -484,6 +487,50 @@ describe("ProfileReconciler", () => {
     await runReconcile(gaggimate as any, notion as any);
 
     expect(notion.updatePushStatus).toHaveBeenCalledWith("archived-fail", "Failed");
+  });
+
+  it("limits archived deletions per cycle", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchProfiles.mockResolvedValue([
+      { id: "delete-1", label: "Delete 1", utility: false },
+      { id: "delete-2", label: "Delete 2", utility: false },
+      { id: "delete-3", label: "Delete 3", utility: false },
+    ]);
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "archived-1",
+          normalizedName: "delete 1",
+          profileId: "delete-1",
+          profileJson: JSON.stringify({ id: "delete-1", label: "Delete 1" }),
+          pushStatus: "Archived",
+          activeOnMachine: true,
+        }),
+        createProfileRecord({
+          pageId: "archived-2",
+          normalizedName: "delete 2",
+          profileId: "delete-2",
+          profileJson: JSON.stringify({ id: "delete-2", label: "Delete 2" }),
+          pushStatus: "Archived",
+          activeOnMachine: true,
+        }),
+        createProfileRecord({
+          pageId: "archived-3",
+          normalizedName: "delete 3",
+          profileId: "delete-3",
+          profileJson: JSON.stringify({ id: "delete-3", label: "Delete 3" }),
+          pushStatus: "Archived",
+          activeOnMachine: true,
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any, { maxDeletesPerRun: 1 });
+
+    expect(gaggimate.deleteProfile).toHaveBeenCalledTimes(1);
   });
 
   it("imports unmatched device profiles as Draft", async () => {

@@ -19,6 +19,7 @@ export const config = {
     intervalMs: Number(process.env.SYNC_INTERVAL_MS) || 30000,
     profileReconcileEnabled: process.env.PROFILE_RECONCILE_ENABLED !== "false",
     profileReconcileIntervalMs: Number(process.env.PROFILE_RECONCILE_INTERVAL_MS) || 30000,
+    profileReconcileDeleteLimitPerRun: Number(process.env.PROFILE_RECONCILE_DELETE_LIMIT_PER_RUN) || 3,
     recentShotLookbackCount: Number(process.env.RECENT_SHOT_LOOKBACK_COUNT) || 5,
   },
   time: {
