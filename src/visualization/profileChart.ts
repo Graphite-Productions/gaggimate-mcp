@@ -161,6 +161,12 @@ export function renderProfileChartSvg(profile: ChartProfile): string {
   const chartH = height - margin.top - margin.bottom;
 
   const { pressure, flow, totalDuration, phases } = buildSeries(profile);
+
+  // Only render series that have non-zero values — pressure-mode profiles have flow=0
+  // throughout and rendering it as a flat dashed line at the baseline masks the real curves.
+  const hasPressure = pressure.some((p) => p.v > 0.01);
+  const hasFlow = flow.some((p) => p.v > 0.01);
+
   // Iterative max to avoid call-stack overflow with large point arrays
   let maxPressure = 12;
   for (const p of pressure) { if (p.v > maxPressure) maxPressure = p.v; }
@@ -171,8 +177,6 @@ export function renderProfileChartSvg(profile: ChartProfile): string {
   const yPressure = (v: number) => margin.top + chartH - (v / maxPressure) * chartH;
   const yFlow = (v: number) => margin.top + chartH - (v / maxFlow) * chartH;
 
-  const pressurePath = toPath(pressure, x, yPressure);
-  const flowPath = toPath(flow, x, yFlow);
   const xTickCount = 6;
   const yTickCount = 6;
 
@@ -182,25 +186,37 @@ export function renderProfileChartSvg(profile: ChartProfile): string {
   const pressureColor = COLOR_FAMILIES.pressure.primary;
   const flowColor = COLOR_FAMILIES.flow.secondary;
 
+  // Subtitle reflects which series are active
+  const seriesLabel = hasPressure && hasFlow ? "Pressure + Flow" : hasPressure ? "Pressure" : "Flow";
+
+  // Flow y-axis: share the left axis when pressure is absent, otherwise use right
+  const flowAxisSide: "left" | "right" = hasPressure ? "right" : "left";
+
+  // Legend — only include active series
+  const legendItems = [
+    ...(hasPressure ? [{ label: "Pressure", color: pressureColor }] : []),
+    ...(hasFlow ? [{ label: "Flow", color: flowColor, dashed: true }] : []),
+  ];
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   ${renderBackground(width, height)}
 
   <text x="${margin.left}" y="72" font-size="32" font-weight="700" font-family="${T.fontFamily}" fill="${T.titleFill}">${title}</text>
-  <text x="${margin.left}" y="104" font-size="16" font-family="${T.fontFamily}" fill="${T.subtitleFill}">Pressure + Flow Profile \u2014 Temp ${temp}</text>
+  <text x="${margin.left}" y="104" font-size="16" font-family="${T.fontFamily}" fill="${T.subtitleFill}">${escapeXml(seriesLabel)} Profile \u2014 Temp ${temp}</text>
 
   ${renderPhases(phases, x, margin, chartH)}
   ${renderGrid(margin, chartW, chartH, xTickCount, yTickCount)}
   ${renderAxisLines(margin, chartW, chartH)}
 
-  <path d="${toAreaPath(pressure, x, yPressure, margin.top + chartH)}" fill="${pressureColor}" opacity="0.10" />
-  <path d="${pressurePath}" fill="none" stroke="${pressureColor}" stroke-width="${T.solidWidth}" stroke-linecap="round" stroke-linejoin="round" />
-  <path d="${flowPath}" fill="none" stroke="${flowColor}" stroke-width="${T.dashedWidth}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${T.dashArray}" />
+  ${hasPressure ? `<path d="${toAreaPath(pressure, x, yPressure, margin.top + chartH)}" fill="${pressureColor}" opacity="0.10" />` : ""}
+  ${hasPressure ? `<path d="${toPath(pressure, x, yPressure)}" fill="none" stroke="${pressureColor}" stroke-width="${T.solidWidth}" stroke-linecap="round" stroke-linejoin="round" />` : ""}
+  ${hasFlow ? `<path d="${toPath(flow, x, yFlow)}" fill="none" stroke="${flowColor}" stroke-width="${T.dashedWidth}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${T.dashArray}" />` : ""}
 
   ${renderXAxis(margin, chartW, chartH, totalDuration, xTickCount)}
-  ${renderYAxis("left", margin, chartW, chartH, maxPressure, "Pressure (bar)", yTickCount)}
-  ${renderYAxis("right", margin, chartW, chartH, maxFlow, "Flow (ml/s)", yTickCount)}
+  ${hasPressure ? renderYAxis("left", margin, chartW, chartH, maxPressure, "Pressure (bar)", yTickCount) : ""}
+  ${hasFlow ? renderYAxis(flowAxisSide, margin, chartW, chartH, maxFlow, "Flow (ml/s)", yTickCount) : ""}
 
-  ${renderLegend([{ label: "Pressure", color: pressureColor }, { label: "Flow", color: flowColor, dashed: true }], margin.left, 140)}
+  ${renderLegend(legendItems, margin.left, 140)}
 </svg>`;
 }
