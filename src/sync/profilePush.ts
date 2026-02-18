@@ -40,7 +40,7 @@ export async function pushProfileToGaggiMate(
     // saveProfile handles normalization internally.
     const savedResult = await gaggimate.saveProfile(profile);
     const savedId = notion.extractProfileId(savedResult);
-    if (savedId && !profile.id) {
+    if (savedId && profile.id !== savedId) {
       profile.id = savedId;
       await notion.updateProfileJson(pageId, JSON.stringify(profile));
     }

@@ -56,6 +56,7 @@ export function isConnectivityError(error: unknown): boolean {
     "network is unreachable",
     "fetch failed",
     "websocket error",
+    "websocket closed",
   ];
 
   return markers.some((marker) => text.includes(marker));
