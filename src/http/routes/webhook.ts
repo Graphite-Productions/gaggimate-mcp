@@ -65,6 +65,7 @@ async function processWebhookEvent(
   gaggimate: GaggiMateClient,
   notion: NotionClient,
   pageId: string,
+  updatedProperties: string[],
 ): Promise<void> {
   // Single page fetch covers push status, profile JSON, and preference state.
   const { profileJson, pushStatus, favorite, selected } = await notion.getProfilePageData(pageId);
@@ -84,7 +85,16 @@ async function processWebhookEvent(
     return;
   }
 
-  // Pushed — sync checkbox state to device.
+  // Pushed — only sync checkbox state to device if a preference property actually changed.
+  // Unrelated field edits (Description, Notes, etc.) should not trigger device calls.
+  const preferenceChanged =
+    updatedProperties.length === 0 ||
+    updatedProperties.includes("Favorite") ||
+    updatedProperties.includes("Selected");
+  if (!preferenceChanged) {
+    return;
+  }
+
   const profileId = notion.extractProfileIdFromJson(profileJson);
   if (!profileId) {
     console.warn(`Webhook for page ${pageId}: Pushed profile has no JSON id, cannot sync favorite/selected`);
@@ -144,7 +154,13 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
-      console.log(`Webhook received: type=${eventType}, entity=${payload?.entity?.type}`);
+      const updatedProps: string[] = Array.isArray(payload?.data?.updated_properties)
+        ? payload.data.updated_properties
+        : [];
+      console.log(
+        `Webhook received: type=${eventType}, entity=${payload?.entity?.type}` +
+          (updatedProps.length > 0 ? `, changed=[${updatedProps.join(", ")}]` : ""),
+      );
 
       const pageId = payload?.entity?.id || payload?.data?.page_id;
       if (!pageId) {
@@ -156,7 +172,7 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
       res.json({ ok: true, action: "accepted" });
 
       // Process the webhook event in the background.
-      processWebhookEvent(gaggimate, notion, pageId).catch((error) => {
+      processWebhookEvent(gaggimate, notion, pageId, updatedProps).catch((error) => {
         console.error(`Webhook background processing failed for page ${pageId}:`, error);
       });
     } catch (error) {
