@@ -1,5 +1,6 @@
 import type { GaggiMateClient } from "../gaggimate/client.js";
 import type { ExistingProfileRecord, NotionClient } from "../notion/client.js";
+import { normalizeProfileForGaggiMate } from "../gaggimate/profileNormalization.js";
 import { isConnectivityError, summarizeConnectivityError } from "../utils/connectivity.js";
 import { repairMojibake } from "../utils/text.js";
 
@@ -239,10 +240,12 @@ export class ProfileReconciler {
       const savedResult = await this.gaggimate.saveProfile(parsedProfile);
       this.savedThisRun += 1;
       const savedId = this.notion.extractProfileId(savedResult) || this.notion.extractProfileId(parsedProfile);
-      if (savedId && parsedProfile.id !== savedId) {
+      if (savedId) {
         parsedProfile.id = savedId;
-        await this.notion.updateProfileJson(notionProfile.pageId, JSON.stringify(parsedProfile));
       }
+      // Always write back normalized form so Notion JSON stays consistent with the device.
+      const normalizedSaved = normalizeProfileForGaggiMate(parsedProfile as any);
+      await this.notion.updateProfileJson(notionProfile.pageId, JSON.stringify(normalizedSaved));
 
       if (savedId) {
         matchedDeviceIds.add(savedId);
@@ -338,6 +341,9 @@ export class ProfileReconciler {
 
         await this.gaggimate.saveProfile(notionProfileJson);
         this.savedThisRun += 1;
+        // Update Notion JSON to the normalized form so future comparisons don't drift again.
+        const normalizedJson = normalizeProfileForGaggiMate(notionProfileJson as any);
+        await this.notion.updateProfileJson(notionProfile.pageId, JSON.stringify(normalizedJson));
         console.log(`Profile ${notionProfile.pageId}: reconciled device profile from Notion JSON`);
       } catch (error) {
         console.error(`Profile ${notionProfile.pageId}: failed to reconcile profile drift:`, error);
@@ -508,7 +514,10 @@ export class ProfileReconciler {
   }
 
   private areProfilesEquivalent(first: any, second: any): boolean {
-    const desired = this.normalizeForCompare(first);
+    // Normalize `first` (Notion JSON) the same way we normalize before saving to the device.
+    // Without this, fields like null phase temperatures or missing valve/pump defaults will
+    // never match the device's filled-in values, causing a re-push every reconcile cycle.
+    const desired = this.normalizeForCompare(normalizeProfileForGaggiMate(first as any));
     const actual = this.normalizeForCompare(second);
     return this.isSubsetMatch(desired, actual);
   }

@@ -20,6 +20,8 @@ export class ShotPoller {
   private running = false;
   private connectivityWarningActive = false;
   private state: SyncState;
+  // Tracks shots confirmed fully synced (brew + chart + JSON) so lookback skips them.
+  private fullySyncedShots = new Set<string>();
 
   constructor(gaggimate: GaggiMateClient, notion: NotionClient, options: ShotPollerOptions) {
     this.gaggimate = gaggimate;
@@ -122,14 +124,25 @@ export class ShotPoller {
 
       for (const shotListItem of candidateShots) {
         try {
-          // Fetch full shot data
-          const shotData = await this.gaggimate.fetchShot(shotListItem.id);
+          const isNewShot = numId(shotListItem) > lastId;
+
+          // Skip lookback shots already confirmed fully synced — avoids ~6 API calls per shot
+          // per poll once there's nothing left to do.
+          if (!isNewShot && this.fullySyncedShots.has(shotListItem.id)) {
+            continue;
+          }
+
+          // Fetch shot data and check for existing Notion brew in parallel —
+          // they hit different services (GaggiMate HTTP vs Notion API).
+          const [shotData, existing] = await Promise.all([
+            this.gaggimate.fetchShot(shotListItem.id),
+            this.notion.findBrewByShotId(shotListItem.id),
+          ]);
+
           if (!shotData) {
             console.warn(`Shot ${shotListItem.id}: not found on GaggiMate, skipping`);
             continue;
           }
-
-          const isNewShot = numId(shotListItem) > lastId;
 
           // If shot file is still being written, retry on next interval.
           // Do not advance sync state past this shot ID yet.
@@ -137,9 +150,6 @@ export class ShotPoller {
             console.log(`Shot ${shotListItem.id}: file incomplete, waiting for next poll before syncing`);
             break;
           }
-
-          // Check Notion for existing brew (dedup/upsert)
-          const existing = await this.notion.findBrewByShotId(shotListItem.id);
 
           // Transform to AI-friendly format (full_curve for Shot JSON)
           const transformed = transformShotForAI(shotData, true);
@@ -195,23 +205,32 @@ export class ShotPoller {
             console.log(`Shot ${shotListItem.id}: synced to Notion as "${brewData.title}"`);
           }
 
-          // Enrich brew with Shot JSON and Brew Profile chart
-          try {
-            await this.notion.setBrewShotJson(pageId, JSON.stringify(transformed));
-          } catch (error) {
-            console.warn(`Shot ${shotListItem.id}: failed to set Shot JSON`, error);
+          // Enrich brew: write Shot JSON and check/upload chart in parallel.
+          // setBrewShotJson writes "Shot JSON" property; brewHasProfileImage reads
+          // "Brew Profile" files — different properties, safe to run concurrently.
+          const [shotJsonResult, hasImage] = await Promise.allSettled([
+            this.notion.setBrewShotJson(pageId, JSON.stringify(transformed)),
+            this.notion.brewHasProfileImage(pageId),
+          ]);
+
+          if (shotJsonResult.status === "rejected") {
+            console.warn(`Shot ${shotListItem.id}: failed to set Shot JSON`, shotJsonResult.reason);
           }
 
-          try {
-            const hasImage = await this.notion.brewHasProfileImage(pageId);
-            if (!hasImage) {
+          const imagePresent = hasImage.status === "fulfilled" && hasImage.value;
+          if (!imagePresent) {
+            try {
               const uploaded = await this.notion.uploadBrewChart(pageId, shotListItem.id, shotData);
               if (uploaded) {
                 console.log(`Shot ${shotListItem.id}: uploaded Brew Profile chart`);
+                this.fullySyncedShots.add(shotListItem.id);
               }
+            } catch (error) {
+              console.warn(`Shot ${shotListItem.id}: failed to upload Brew Profile chart`, error);
             }
-          } catch (error) {
-            console.warn(`Shot ${shotListItem.id}: failed to upload Brew Profile chart`, error);
+          } else {
+            // Chart already present — this shot is fully synced, skip it in future lookback passes.
+            this.fullySyncedShots.add(shotListItem.id);
           }
         } catch (error) {
           if (isConnectivityError(error)) {

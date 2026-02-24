@@ -1,4 +1,5 @@
 import type { GaggiMateClient } from "../gaggimate/client.js";
+import { normalizeProfileForGaggiMate } from "../gaggimate/profileNormalization.js";
 import type { NotionClient } from "../notion/client.js";
 import { syncFavoriteAndSelectedFromNotion, type ProfilePreferenceState } from "./profilePreferenceSync.js";
 
@@ -40,10 +41,12 @@ export async function pushProfileToGaggiMate(
     // saveProfile handles normalization internally.
     const savedResult = await gaggimate.saveProfile(profile);
     const savedId = notion.extractProfileId(savedResult);
-    if (savedId && profile.id !== savedId) {
+    if (savedId) {
       profile.id = savedId;
-      await notion.updateProfileJson(pageId, JSON.stringify(profile));
     }
+    // Always write back normalized form so Notion JSON stays consistent with the device.
+    const normalizedProfile = normalizeProfileForGaggiMate(profile as any);
+    await notion.updateProfileJson(pageId, JSON.stringify(normalizedProfile));
     const effectiveProfileId = savedId || notion.extractProfileId(profile);
     if (effectiveProfileId) {
       try {
