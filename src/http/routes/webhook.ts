@@ -144,7 +144,7 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
       const payload = req.body;
       const eventType = payload?.type;
 
-      // Only process page property changes in the Profiles DB
+      // Only process page property changes
       if (
         eventType !== "page.property_changed" &&
         eventType !== "page.changed" &&
@@ -152,6 +152,17 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
       ) {
         res.json({ ok: true, action: "ignored" });
         return;
+      }
+
+      // Early filter: if Notion includes the parent database ID in the payload,
+      // skip pages from other databases without a Notion API call.
+      const parentDbId: string | undefined = payload?.data?.parent?.database_id;
+      if (parentDbId) {
+        const normalize = (id: string) => id.replace(/-/g, "").toLowerCase();
+        if (normalize(parentDbId) !== normalize(config.notion.profilesDbId)) {
+          res.json({ ok: true, action: "ignored", reason: "not profiles db" });
+          return;
+        }
       }
 
       const updatedProps: string[] = Array.isArray(payload?.data?.updated_properties)

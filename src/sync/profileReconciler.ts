@@ -22,6 +22,9 @@ export class ProfileReconciler {
   private savedThisRun = 0;
   private saveLimitWarned = false;
   private connectivityWarningActive = false;
+  // Cooldown: skip backfill until this timestamp to avoid hammering Notion/GaggiMate
+  // when there's nothing to link or brews are persistently unresolvable.
+  private backfillSkipUntil = 0;
 
   constructor(gaggimate: GaggiMateClient, notion: NotionClient, options: ProfileReconcilerOptions) {
     this.gaggimate = gaggimate;
@@ -156,7 +159,15 @@ export class ProfileReconciler {
         }
       }
 
-      const backfillResult = await this.backfillBrewProfileRelations();
+      // Build a normalized-name → pageId map from the already-fetched profile index
+      // so backfill can resolve profile names without making additional Notion queries.
+      const profileNameToPageId = new Map<string, string>();
+      for (const record of notionIndex.all) {
+        if (record.normalizedName) {
+          profileNameToPageId.set(record.normalizedName, record.pageId);
+        }
+      }
+      const backfillResult = await this.backfillBrewProfileRelations(profileNameToPageId);
       if (backfillResult.linked > 0) {
         console.log(
           `Profile reconciler: linked ${backfillResult.linked} brew(s) to profiles (scanned ${backfillResult.scanned})`,
@@ -460,7 +471,14 @@ export class ProfileReconciler {
     }
   }
 
-  private async backfillBrewProfileRelations(): Promise<{ scanned: number; linked: number }> {
+  private async backfillBrewProfileRelations(
+    profilesByName: Map<string, string>,
+  ): Promise<{ scanned: number; linked: number }> {
+    // Cooldown: skip entirely when we recently found nothing useful to do.
+    if (Date.now() < this.backfillSkipUntil) {
+      return { scanned: 0, linked: 0 };
+    }
+
     let scanned = 0;
     let linked = 0;
     const maxRowsPerRun = 1000;
@@ -484,7 +502,9 @@ export class ProfileReconciler {
             continue;
           }
 
-          const profilePageId = await this.notion.getProfilePageIdByName(shot.profileName);
+          // Use the already-fetched profile index — no extra Notion query per brew.
+          const normalizedName = this.notion.normalizeProfileName(shot.profileName);
+          const profilePageId = profilesByName.get(normalizedName) ?? null;
           if (!profilePageId) {
             continue;
           }
@@ -499,6 +519,15 @@ export class ProfileReconciler {
       if (candidates.length < 100) {
         break;
       }
+    }
+
+    // Set cooldown based on outcome to avoid repeated expensive cycles:
+    //   scanned=0  → nothing to do at all   → skip for 5 min
+    //   linked=0   → found brews but none linkable (offline/no profile name) → skip for 2 min
+    if (scanned === 0) {
+      this.backfillSkipUntil = Date.now() + 5 * 60 * 1000;
+    } else if (linked === 0) {
+      this.backfillSkipUntil = Date.now() + 2 * 60 * 1000;
     }
 
     return { scanned, linked };

@@ -29,6 +29,10 @@ export class NotionClient {
   private client: Client;
   private config: NotionConfig;
   private imageUploadDisabledReason: string | null = null;
+  // Cache positive profile name→pageId lookups. Only positive results are cached so
+  // newly-created profiles are always found without explicit invalidation.
+  private profilePageIdCache = new Map<string, { pageId: string; expiresAt: number }>();
+  private readonly PROFILE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   constructor(notionConfig: NotionConfig) {
     this.config = notionConfig;
@@ -404,6 +408,13 @@ export class NotionClient {
     const requestedName = this.normalizeProfileName(profileName);
     if (!requestedName) return null;
 
+    // Cache hit — only positive results are stored so newly-created profiles are
+    // always discovered on the next query without any explicit invalidation.
+    const cached = this.profilePageIdCache.get(requestedName);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.pageId;
+    }
+
     // Fast path: exact title match.
     const exactMatch = await this.client.databases.query({
       database_id: this.config.profilesDbId,
@@ -414,7 +425,9 @@ export class NotionClient {
       page_size: 1,
     });
     if (exactMatch.results.length > 0) {
-      return exactMatch.results[0].id;
+      const pageId = exactMatch.results[0].id;
+      this.profilePageIdCache.set(requestedName, { pageId, expiresAt: Date.now() + this.PROFILE_CACHE_TTL });
+      return pageId;
     }
 
     // Fallback: scan profile names to allow case/spacing/encoding variations.
@@ -429,7 +442,9 @@ export class NotionClient {
       for (const page of response.results as any[]) {
         const candidateName = this.normalizeProfileName(this.extractTitle(page));
         if (candidateName === requestedName) {
-          return page.id;
+          const pageId = page.id;
+          this.profilePageIdCache.set(requestedName, { pageId, expiresAt: Date.now() + this.PROFILE_CACHE_TTL });
+          return pageId;
         }
       }
 
