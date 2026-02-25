@@ -63,6 +63,7 @@ async function main() {
     dataDir: config.data.dir,
     recentShotLookbackCount: config.sync.recentShotLookbackCount,
     brewTitleTimeZone: config.time.brewTitleTimeZone,
+    repairIntervalMs: config.sync.brewRepairIntervalMs,
   });
 
   // Start HTTP server

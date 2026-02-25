@@ -51,6 +51,7 @@ export const config = {
     profileReconcileDeleteLimitPerRun: parseEnvNumber(process.env.PROFILE_RECONCILE_DELETE_LIMIT_PER_RUN, 3),
     profileReconcileSaveLimitPerRun: parseEnvNumber(process.env.PROFILE_RECONCILE_SAVE_LIMIT_PER_RUN, 5),
     recentShotLookbackCount: parseEnvNumber(process.env.RECENT_SHOT_LOOKBACK_COUNT, 5),
+    brewRepairIntervalMs: parseEnvNumber(process.env.BREW_REPAIR_INTERVAL_MS, 3600000), // 1 hour
   },
   time: {
     brewTitleTimeZone: process.env.BREW_TITLE_TIMEZONE || process.env.TZ || "America/Los_Angeles",

@@ -11,6 +11,7 @@ interface ShotPollerOptions {
   dataDir: string;
   recentShotLookbackCount: number;
   brewTitleTimeZone: string;
+  repairIntervalMs: number;
 }
 
 export class ShotPoller {
@@ -27,9 +28,10 @@ export class ShotPoller {
   private state: SyncState;
   // Tracks shots confirmed fully synced (brew + chart + JSON) so lookback skips them.
   private fullySyncedShots = new Set<string>();
-  private repairHasRun = false;
-  // How many past shots to scan for stale data on startup.
-  private readonly REPAIR_WINDOW = 20;
+  // Timestamp of the last completed repair scan (0 = never run).
+  private repairLastRun = 0;
+  // How many past shots to scan for stale/missing data on each repair pass.
+  private readonly REPAIR_WINDOW = 50;
 
   constructor(gaggimate: GaggiMateClient, notion: NotionClient, options: ShotPollerOptions) {
     this.gaggimate = gaggimate;
@@ -74,14 +76,15 @@ export class ShotPoller {
   }
 
   /**
-   * One-time startup scan: look at the last REPAIR_WINDOW shots that have already
-   * been synced and re-upload any brew whose Shot JSON shows sample_count === 0.
-   * This corrects brews that were written while the shot file was still being
-   * initialized on the device (before the index's SHOT_FLAG_COMPLETED guard was added).
+   * Periodic scan over the last REPAIR_WINDOW synced shots.
+   * Re-uploads Shot JSON when it's stale (sample_count === 0) and re-uploads the
+   * Brew Profile chart when it's missing from the Notion page.  Runs at most once
+   * per repairIntervalMs (default 1 hour) so it won't interfere with normal polling.
    */
   private async repairStaleBrews(shots: ShotListItem[]): Promise<void> {
-    if (this.repairHasRun) return;
-    this.repairHasRun = true;
+    const now = Date.now();
+    if (this.options.repairIntervalMs <= 0 || now - this.repairLastRun < this.options.repairIntervalMs) return;
+    this.repairLastRun = now;
 
     const lastId = this.state.lastSyncedShotId ? parseInt(this.state.lastSyncedShotId, 10) : 0;
     if (lastId === 0) return;
@@ -103,9 +106,16 @@ export class ShotPoller {
         const existing = await this.notion.findBrewByShotId(shotListItem.id);
         if (!existing) continue;
 
-        const existingJson = await this.notion.getBrewShotJson(existing);
-        if (!this.isBrewJsonStale(existingJson)) {
-          // Already has real data — mark as fully synced so lookback skips it.
+        // Check both JSON staleness and image presence in parallel.
+        const [existingJson, imagePresent] = await Promise.all([
+          this.notion.getBrewShotJson(existing),
+          this.notion.imageUploadDisabled ? Promise.resolve(true) : this.notion.brewHasProfileImage(existing),
+        ]);
+
+        const shotJsonStale = this.isBrewJsonStale(existingJson);
+
+        if (!shotJsonStale && imagePresent) {
+          // Both are good — mark fully synced so lookback skips it.
           this.fullySyncedShots.add(shotListItem.id);
           continue;
         }
@@ -113,29 +123,41 @@ export class ShotPoller {
         const shotData = await this.gaggimate.fetchShot(shotListItem.id);
         if (!shotData || shotData.samples.length === 0) continue;
 
-        const transformed = transformShotForAI(shotData, true);
-        const shotJsonStr = JSON.stringify(transformed);
-        const brewData = shotToBrewData(shotData, transformed, {
-          timeZone: this.options.brewTitleTimeZone,
-        });
+        const parts: string[] = [];
 
-        await this.notion.updateBrewFromData(existing, brewData, shotJsonStr);
-
-        // Force chart re-upload — the existing image is the empty SVG from before.
-        const uploaded = await this.notion.uploadBrewChart(existing, shotListItem.id, shotData);
-        if (uploaded) {
-          this.fullySyncedShots.add(shotListItem.id);
+        if (shotJsonStale) {
+          const transformed = transformShotForAI(shotData, true);
+          const shotJsonStr = JSON.stringify(transformed);
+          const brewData = shotToBrewData(shotData, transformed, {
+            timeZone: this.options.brewTitleTimeZone,
+          });
+          await this.notion.updateBrewFromData(existing, brewData, shotJsonStr);
+          parts.push("JSON");
         }
 
-        repairedCount++;
-        console.log(`Shot ${shotListItem.id}: repaired stale brew (JSON + chart re-synced)`);
+        if (!imagePresent && !this.notion.imageUploadDisabled) {
+          const uploaded = await this.notion.uploadBrewChart(existing, shotListItem.id, shotData);
+          if (uploaded) {
+            parts.push("chart");
+          }
+        }
+
+        if (parts.length > 0) {
+          // Only mark fully synced when the image is confirmed present after this pass.
+          const imageNowPresent = imagePresent || parts.includes("chart");
+          if (imageNowPresent || this.notion.imageUploadDisabled) {
+            this.fullySyncedShots.add(shotListItem.id);
+          }
+          repairedCount++;
+          console.log(`Shot ${shotListItem.id}: repaired brew (${parts.join(" + ")} re-synced)`);
+        }
       } catch (err) {
         console.warn(`Shot ${shotListItem.id}: repair failed`, err);
       }
     }
 
     if (repairedCount > 0) {
-      console.log(`Startup repair complete: fixed ${repairedCount} shot(s) with empty data`);
+      console.log(`Repair scan complete: fixed ${repairedCount} shot(s) with missing/stale data`);
     }
   }
 

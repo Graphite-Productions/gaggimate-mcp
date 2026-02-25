@@ -559,11 +559,12 @@ export class ProfileReconciler {
   }
 
   private areProfilesEquivalent(first: any, second: any): boolean {
-    // Normalize `first` (Notion JSON) the same way we normalize before saving to the device.
-    // Without this, fields like null phase temperatures or missing valve/pump defaults will
-    // never match the device's filled-in values, causing a re-push every reconcile cycle.
+    // Normalize both sides the same way before comparing.
+    // This ensures fields like phase temperature (which the device only stores when it differs
+    // from the profile temperature) and pump defaults are filled in consistently on both sides,
+    // preventing a false mismatch — and re-push — on every reconcile cycle.
     const desired = this.normalizeForCompare(normalizeProfileForGaggiMate(first as any));
-    const actual = this.normalizeForCompare(second);
+    const actual = this.normalizeForCompare(normalizeProfileForGaggiMate(second as any));
     return this.isSubsetMatch(desired, actual);
   }
 
