@@ -85,16 +85,11 @@ async function processWebhookEvent(
     return;
   }
 
-  // Pushed — only sync checkbox state to device if a preference property actually changed.
-  // Unrelated field edits (Description, Notes, etc.) should not trigger device calls.
-  const preferenceChanged =
-    updatedProperties.length === 0 ||
-    updatedProperties.includes("Favorite") ||
-    updatedProperties.includes("Selected");
-  if (!preferenceChanged) {
-    return;
-  }
-
+  // Pushed — sync favorite/selected to device.
+  // Note: Notion webhooks send internal property IDs in updated_properties (e.g. "CqzA",
+  // "{_w?"), not display names ("Favorite", "Selected"), so we cannot reliably filter by
+  // name. Preference sync is idempotent and cheap (1-2 WebSocket calls), so we always
+  // run it for Pushed profiles. The reconciler also covers this every 30s.
   const profileId = notion.extractProfileIdFromJson(profileJson);
   if (!profileId) {
     console.warn(`Webhook for page ${pageId}: Pushed profile has no JSON id, cannot sync favorite/selected`);

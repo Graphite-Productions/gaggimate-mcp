@@ -113,6 +113,41 @@ describe("webhook route status handling", () => {
     expect(gaggimate.saveProfile).not.toHaveBeenCalled();
   });
 
+  it("syncs preferences for Pushed profiles even when updated_properties contains only property IDs", async () => {
+    // Notion webhooks send internal property IDs (e.g. "CqzA", "{_w?"), not display names.
+    // Preference sync must run regardless of the updated_properties content.
+    const gaggimate = createMockGaggimate();
+    const notion = createMockNotion();
+    notion.getProfilePageData.mockResolvedValue({
+      profileJson: JSON.stringify({ id: "device-456", label: "Profile" }),
+      pushStatus: "Pushed",
+      favorite: false,
+      selected: false,
+    });
+    notion.extractProfileIdFromJson.mockReturnValue("device-456");
+
+    const router = createWebhookRouter(gaggimate as any, notion as any);
+    const handler = getNotionWebhookHandler(router);
+    const req = createSignedRequest({
+      type: "page.properties_updated",
+      entity: { type: "page", id: "page-2" },
+      data: {
+        // Notion property IDs — not human-readable names like "Favorite" or "Selected"
+        updated_properties: ["%7B_w%3F", "CqzA"],
+      },
+    });
+    const res = createResponse();
+
+    await handler(req, res);
+    expect(res.jsonBody).toEqual({ ok: true, action: "accepted" });
+
+    // Preference sync must still fire even though the property IDs don't match "Favorite"/"Selected"
+    await vi.waitFor(() => {
+      expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-456", false);
+    });
+    expect(gaggimate.saveProfile).not.toHaveBeenCalled();
+  });
+
   it("ignores Archived status even if profile is selected/favorited", async () => {
     const gaggimate = createMockGaggimate();
     const notion = createMockNotion();
