@@ -339,18 +339,6 @@ export class NotionClient {
     return createdPage.id;
   }
 
-  /** Update the Profile JSON rich_text property on a profile page */
-  async updateProfileJson(pageId: string, jsonString: string): Promise<void> {
-    await this.client.pages.update({
-      page_id: pageId,
-      properties: {
-        "Profile JSON": {
-          rich_text: this.toRichText(jsonString),
-        },
-      },
-    });
-  }
-
   /** Check whether a profile with this name already exists in Notion */
   async hasProfileByName(profileName: string): Promise<boolean> {
     const pageId = await this.findProfilePageByName(profileName);
@@ -535,6 +523,18 @@ export class NotionClient {
 
       cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
     } while (cursor);
+
+    // Seed the profile name → pageId cache from the freshly-fetched full index so that
+    // subsequent findProfilePageByName calls (e.g. from the shot poller) are cache hits.
+    const cacheExpiry = Date.now() + this.PROFILE_CACHE_TTL;
+    for (const record of all) {
+      if (record.normalizedName) {
+        this.profilePageIdCache.set(record.normalizedName, {
+          pageId: record.pageId,
+          expiresAt: cacheExpiry,
+        });
+      }
+    }
 
     return { byName, byId, all };
   }

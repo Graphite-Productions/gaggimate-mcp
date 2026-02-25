@@ -56,14 +56,14 @@ export class ProfileReconciler {
     this.saveLimitWarned = false;
 
     try {
-      let deviceProfiles: any[];
-      try {
-        deviceProfiles = await this.gaggimate.fetchProfiles();
-        if (this.connectivityWarningActive) {
-          console.log("Profile reconciler: GaggiMate connectivity restored");
-          this.connectivityWarningActive = false;
-        }
-      } catch (error) {
+      // Fetch device profiles and Notion profiles in parallel — they hit different services.
+      const [profilesResult, notionResult] = await Promise.allSettled([
+        this.gaggimate.fetchProfiles(),
+        this.notion.listExistingProfiles(),
+      ]);
+
+      if (profilesResult.status === "rejected") {
+        const error = profilesResult.reason;
         if (isConnectivityError(error)) {
           const summary = summarizeConnectivityError(error);
           if (!this.connectivityWarningActive) {
@@ -76,7 +76,16 @@ export class ProfileReconciler {
         return;
       }
 
-      const notionIndex = await this.notion.listExistingProfiles();
+      const deviceProfiles: any[] = profilesResult.value;
+      if (this.connectivityWarningActive) {
+        console.log("Profile reconciler: GaggiMate connectivity restored");
+        this.connectivityWarningActive = false;
+      }
+
+      if (notionResult.status === "rejected") {
+        throw notionResult.reason;
+      }
+      const notionIndex = notionResult.value;
       const deviceById = new Map<string, any>();
       for (const deviceProfile of deviceProfiles) {
         const profileId = this.notion.extractProfileId(deviceProfile);
