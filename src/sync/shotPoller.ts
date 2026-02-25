@@ -153,6 +153,7 @@ export class ShotPoller {
 
           // Transform to AI-friendly format (full_curve for Shot JSON)
           const transformed = transformShotForAI(shotData, true);
+          const shotJsonStr = JSON.stringify(transformed);
 
           // Map to brew data and create in Notion
           const brewData = shotToBrewData(shotData, transformed, {
@@ -189,46 +190,58 @@ export class ShotPoller {
             }
           }
 
+          // Shot JSON is folded into create/update to save a separate API round-trip.
           let pageId: string;
+          let hasImageResult: PromiseSettledResult<boolean>;
+
           if (existing) {
-            await this.notion.updateBrewFromData(existing, brewData);
+            // Run brew update (including Shot JSON) and image-presence check in parallel —
+            // they write/read different page properties so they are safe to interleave.
+            // Skip the image check entirely when uploads are disabled to avoid a wasted read.
+            const imageCheckPromise = this.notion.imageUploadDisabled
+              ? Promise.resolve(false)
+              : this.notion.brewHasProfileImage(existing);
+            const [updateResult, imageResult] = await Promise.allSettled([
+              this.notion.updateBrewFromData(existing, brewData, shotJsonStr),
+              imageCheckPromise,
+            ]);
+            if (updateResult.status === "rejected") {
+              throw updateResult.reason;
+            }
             pageId = existing;
+            hasImageResult = imageResult;
             if (isNewShot) {
               state.recordSync(shotListItem.id);
               syncedIds.push(shotListItem.id);
               console.log(`Shot ${shotListItem.id}: updated existing Notion brew as "${brewData.title}"`);
             }
           } else {
-            pageId = await this.notion.createBrew(brewData);
+            // Shot JSON included in the create call — no separate update needed.
+            // Brand-new pages have no chart image, so skip the image-presence read.
+            pageId = await this.notion.createBrew(brewData, shotJsonStr);
             if (isNewShot) {
               state.recordSync(shotListItem.id);
               syncedIds.push(shotListItem.id);
             }
             console.log(`Shot ${shotListItem.id}: synced to Notion as "${brewData.title}"`);
+            hasImageResult = { status: "fulfilled", value: false };
           }
 
-          // Enrich brew: write Shot JSON and check/upload chart in parallel.
-          // setBrewShotJson writes "Shot JSON" property; brewHasProfileImage reads
-          // "Brew Profile" files — different properties, safe to run concurrently.
-          const [shotJsonResult, hasImage] = await Promise.allSettled([
-            this.notion.setBrewShotJson(pageId, JSON.stringify(transformed)),
-            this.notion.brewHasProfileImage(pageId),
-          ]);
-
-          if (shotJsonResult.status === "rejected") {
-            console.warn(`Shot ${shotListItem.id}: failed to set Shot JSON`, shotJsonResult.reason);
-          }
-
-          const imagePresent = hasImage.status === "fulfilled" && hasImage.value;
+          const imagePresent = hasImageResult.status === "fulfilled" && hasImageResult.value;
           if (!imagePresent) {
-            try {
-              const uploaded = await this.notion.uploadBrewChart(pageId, shotListItem.id, shotData);
-              if (uploaded) {
-                console.log(`Shot ${shotListItem.id}: uploaded Brew Profile chart`);
-                this.fullySyncedShots.add(shotListItem.id);
+            if (this.notion.imageUploadDisabled) {
+              // Uploads permanently disabled — mark fully synced to avoid repeated lookback retries.
+              this.fullySyncedShots.add(shotListItem.id);
+            } else {
+              try {
+                const uploaded = await this.notion.uploadBrewChart(pageId, shotListItem.id, shotData);
+                if (uploaded) {
+                  console.log(`Shot ${shotListItem.id}: uploaded Brew Profile chart`);
+                  this.fullySyncedShots.add(shotListItem.id);
+                }
+              } catch (error) {
+                console.warn(`Shot ${shotListItem.id}: failed to upload Brew Profile chart`, error);
               }
-            } catch (error) {
-              console.warn(`Shot ${shotListItem.id}: failed to upload Brew Profile chart`, error);
             }
           } else {
             // Chart already present — this shot is fully synced, skip it in future lookback passes.

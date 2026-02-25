@@ -177,7 +177,7 @@ describe("webhook route status handling", () => {
 
     // Wait for background push to complete
     await vi.waitFor(() => {
-      expect(notion.updatePushStatus).toHaveBeenCalledWith("page-queued", "Pushed", expect.any(String), true);
+      expect(notion.updatePushStatus).toHaveBeenCalledWith("page-queued", "Pushed", expect.any(String), true, expect.any(String));
     });
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
   });

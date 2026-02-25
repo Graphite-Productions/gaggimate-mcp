@@ -55,8 +55,8 @@ describe("ShotPoller", () => {
       uploadProfileImage: vi.fn().mockResolvedValue(true),
       createBrew: vi.fn().mockResolvedValue("brew-page"),
       updateBrewFromData: vi.fn(),
-      setBrewShotJson: vi.fn().mockResolvedValue(undefined),
       brewHasProfileImage: vi.fn().mockResolvedValue(true),
+      imageUploadDisabled: null,
       uploadBrewChart: vi.fn().mockResolvedValue(true),
     };
 
@@ -98,8 +98,8 @@ describe("ShotPoller", () => {
       uploadProfileImage: vi.fn(),
       createBrew: vi.fn(),
       updateBrewFromData: vi.fn(),
-      setBrewShotJson: vi.fn(),
       brewHasProfileImage: vi.fn(),
+      imageUploadDisabled: null,
       uploadBrewChart: vi.fn(),
     };
 

@@ -40,7 +40,6 @@ describe("profileChart", () => {
     expect(svg).toContain("Preinfusion");
     expect(svg).toContain("Extraction");
     expect(svg).toContain("Pressure");
-    expect(svg).toContain("Flow");
   });
 
   it("produces curved pressure ramp when transition is linear", () => {

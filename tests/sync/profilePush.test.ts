@@ -42,7 +42,7 @@ describe("pushProfileToGaggiMate", () => {
     expect(pushedProfile.label).toBe("My Profile");
     expect(pushedProfile.temperature).toBe(93);
     expect(pushedProfile.phases).toHaveLength(1);
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-1", "Pushed", expect.any(String), true);
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-1", "Pushed", expect.any(String), true, expect.any(String));
     expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("profile-id", false);
     expect(gaggimate.selectProfile).not.toHaveBeenCalled();
   });
@@ -60,11 +60,7 @@ describe("pushProfileToGaggiMate", () => {
 
     await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-2", profileJson);
 
-    expect(notion.updateProfileJson).toHaveBeenCalledTimes(1);
-    expect(notion.updateProfileJson).toHaveBeenCalledWith(
-      "page-2",
-      expect.stringContaining("\"id\":\"device-123\""),
-    );
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-2", "Pushed", expect.any(String), true, expect.stringContaining('"id":"device-123"'));
     expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-123", false);
   });
 
@@ -119,7 +115,7 @@ describe("pushProfileToGaggiMate", () => {
 
     await pushProfileToGaggiMate(gaggimate as any, notion as any, "page-pref-fail", profileJson);
 
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-pref-fail", "Pushed", expect.any(String), true);
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("page-pref-fail", "Pushed", expect.any(String), true, expect.any(String));
   });
 
   it("rejects invalid JSON and sets status to Failed", async () => {

@@ -93,11 +93,7 @@ describe("ProfileReconciler", () => {
     expect(queuedPayload.label).toBe("Queued Profile");
     expect(queuedPayload.temperature).toBe(93);
     expect(queuedPayload.phases).toHaveLength(1);
-    expect(notion.updateProfileJson).toHaveBeenCalledWith(
-      "queued-page",
-      expect.stringContaining("\"id\":\"device-123\""),
-    );
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-page", "Pushed", expect.any(String), true);
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-page", "Pushed", expect.any(String), true, expect.stringContaining('"id":"device-123"'));
   });
 
   it("syncs favorite and selected immediately after queued push", async () => {
@@ -129,7 +125,7 @@ describe("ProfileReconciler", () => {
     // Favorite and selected must be synced in the same reconcile cycle, not deferred.
     expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-fav", true);
     expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-fav");
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-fav", "Pushed", expect.any(String), true);
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-fav", "Pushed", expect.any(String), true, expect.any(String));
   });
 
   it("marks queued profile Failed when JSON is invalid", async () => {
@@ -213,7 +209,7 @@ describe("ProfileReconciler", () => {
     );
     expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("profile-id", true);
     expect(gaggimate.selectProfile).toHaveBeenCalledWith("profile-id");
-    expect(notion.updatePushStatus).toHaveBeenCalledWith("missing-on-device", "Pushed", expect.any(String), true);
+    expect(notion.updatePushStatus).toHaveBeenCalledWith("missing-on-device", "Pushed", expect.any(String), true, expect.any(String));
   });
 
   it("marks pushed profile Failed when missing on device and Notion JSON is invalid", async () => {
@@ -300,7 +296,7 @@ describe("ProfileReconciler", () => {
         favorite: false,
         selected: false,
         temperature: 93,
-        phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+        phases: [{ name: "Extraction", phase: "brew", duration: 30, valve: 1, temperature: 93, pump: { target: "pressure", pressure: 9, flow: 0 } }],
       },
     ]);
     const notion = createMockNotion();
@@ -380,7 +376,7 @@ describe("ProfileReconciler", () => {
         id: "same-id",
         label: "Same Profile",
         temperature: 93,
-        phases: [{ phase: "brew", duration: 30, name: "Extraction" }],
+        phases: [{ phase: "brew", duration: 30, name: "Extraction", valve: 1, temperature: 93, pump: { target: "pressure", pressure: 9, flow: 0 } }],
       },
     ]);
     const notion = createMockNotion();
@@ -417,7 +413,7 @@ describe("ProfileReconciler", () => {
         id: "typed-id",
         label: "Typed Profile",
         temperature: "93",
-        phases: [{ name: "Extraction", phase: "brew", duration: "30" }],
+        phases: [{ name: "Extraction", phase: "brew", duration: "30", valve: 1, temperature: 93, pump: { target: "pressure", pressure: 9, flow: 0 } }],
       },
     ]);
     const notion = createMockNotion();
@@ -453,7 +449,7 @@ describe("ProfileReconciler", () => {
         id: "label-id",
         label: "Linea Gesha â Extended Bloom Clarity v3",
         temperature: 93,
-        phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+        phases: [{ name: "Extraction", phase: "brew", duration: 30, valve: 1, temperature: 93, pump: { target: "pressure", pressure: 9, flow: 0 } }],
       },
     ]);
     const notion = createMockNotion();
@@ -833,7 +829,11 @@ describe("ProfileReconciler", () => {
     const gaggimate = createMockGaggimate();
     gaggimate.fetchShot.mockResolvedValue({ profileName: "Profile A" });
     const notion = createMockNotion();
-    notion.getProfilePageIdByName.mockResolvedValue("profile-page-id");
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [createProfileRecord({ pageId: "profile-page-id", normalizedName: "profile a" })],
+    });
     notion.listBrewsMissingProfileRelation
       .mockResolvedValueOnce([{ pageId: "brew-page", activityId: "00123" }])
       .mockResolvedValueOnce([]);
@@ -841,7 +841,6 @@ describe("ProfileReconciler", () => {
     await runReconcile(gaggimate as any, notion as any);
 
     expect(gaggimate.fetchShot).toHaveBeenCalledWith("00123");
-    expect(notion.getProfilePageIdByName).toHaveBeenCalledWith("Profile A");
     expect(notion.setBrewProfileRelation).toHaveBeenCalledWith("brew-page", "profile-page-id");
   });
 
@@ -852,7 +851,6 @@ describe("ProfileReconciler", () => {
 
     await runReconcile(gaggimate as any, notion as any);
 
-    expect(notion.listExistingProfiles).not.toHaveBeenCalled();
     expect(notion.createDraftProfile).not.toHaveBeenCalled();
   });
 
@@ -863,7 +861,6 @@ describe("ProfileReconciler", () => {
 
     await runReconcile(gaggimate as any, notion as any);
 
-    expect(notion.listExistingProfiles).not.toHaveBeenCalled();
     expect(notion.createDraftProfile).not.toHaveBeenCalled();
   });
 });

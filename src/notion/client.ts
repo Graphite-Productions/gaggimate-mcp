@@ -57,9 +57,11 @@ export class NotionClient {
   // ─── Brews ────────────────────────────────────────────────
 
   /** Create a brew entry in Notion from shot data */
-  async createBrew(brew: BrewData): Promise<string> {
+  async createBrew(brew: BrewData, shotJson?: string): Promise<string> {
     const properties = await this.buildBrewProperties(brew);
-
+    if (shotJson !== undefined) {
+      properties["Shot JSON"] = { rich_text: this.toRichText(shotJson) };
+    }
     const response = await this.client.pages.create({
       parent: { database_id: this.config.brewsDbId },
       properties,
@@ -68,8 +70,11 @@ export class NotionClient {
   }
 
   /** Update an existing brew page from shot-derived data */
-  async updateBrewFromData(pageId: string, brew: BrewData): Promise<void> {
+  async updateBrewFromData(pageId: string, brew: BrewData, shotJson?: string): Promise<void> {
     const properties = await this.buildBrewProperties(brew);
+    if (shotJson !== undefined) {
+      properties["Shot JSON"] = { rich_text: this.toRichText(shotJson) };
+    }
     await this.updateBrew(pageId, properties);
   }
 
@@ -145,18 +150,6 @@ export class NotionClient {
     } catch {
       return false;
     }
-  }
-
-  /** Set the Shot JSON rich_text property on a brew page */
-  async setBrewShotJson(pageId: string, jsonString: string): Promise<void> {
-    await this.client.pages.update({
-      page_id: pageId,
-      properties: {
-        "Shot JSON": {
-          rich_text: this.toRichText(jsonString),
-        },
-      },
-    });
   }
 
   /** Render + upload a brew chart SVG to the Brew Profile files property */
