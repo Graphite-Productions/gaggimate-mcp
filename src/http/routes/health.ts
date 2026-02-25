@@ -4,6 +4,8 @@ import type { NotionClient } from "../../notion/client.js";
 import type { SyncState } from "../../sync/state.js";
 
 const startTime = Date.now();
+const buildDate = process.env.BUILD_DATE ?? null;
+const gitSha = process.env.GIT_SHA ?? null;
 
 export function createHealthRouter(
   gaggimate: GaggiMateClient,
@@ -24,6 +26,8 @@ export function createHealthRouter(
       const imageUploadDisabled = notion.imageUploadDisabled;
       res.json({
         status: "ok",
+        version: buildDate ?? "dev",
+        ...(gitSha ? { commit: gitSha.slice(0, 7) } : {}),
         gaggimate: {
           host: gaggimate.host,
           reachable: gaggiReachable,

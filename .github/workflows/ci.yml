@@ -56,6 +56,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set build date
+        id: date
+        run: echo "value=$(date -u +'%Y-%m-%d %H:%M UTC')" >> $GITHUB_OUTPUT
+
+      - name: Set date tag
+        id: datetag
+        run: echo "value=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -63,4 +71,8 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ steps.datetag.outputs.value }}
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          build-args: |
+            BUILD_DATE=${{ steps.date.outputs.value }}
+            GIT_SHA=${{ github.sha }}

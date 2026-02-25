@@ -377,6 +377,40 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
 
 ---
 
+## Updating
+
+Every push to `main` automatically builds and publishes a new `:latest` image to GitHub Container Registry. You don't need to track SHA hashes — just pull `latest`.
+
+### Check what version is running
+
+```bash
+# From logs at startup:
+#   Version: 2026-02-25 15:13 UTC (abc1234)
+
+# Or from the health endpoint anytime:
+curl http://localhost:3000/health | grep -E 'version|commit'
+```
+
+### Update on TrueNAS
+
+```bash
+# Pull the new image and restart
+docker pull ghcr.io/graphite-productions/gaggimate-bridge:latest
+docker restart gaggimate-bridge
+```
+
+The startup log will immediately confirm the new version. The service resumes where it left off — sync state is preserved on the data volume.
+
+### Pin to a specific date
+
+If you need to roll back or pin to a specific build, date-based tags are published alongside `latest`:
+
+```
+ghcr.io/graphite-productions/gaggimate-bridge:2026-02-25
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

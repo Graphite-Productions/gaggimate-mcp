@@ -3,6 +3,15 @@
 # IMPORTANT: Set environment variables in the TrueNAS app configuration UI.
 # Do NOT set them in this file — TrueNAS manages env vars separately.
 #
+# UPDATING: Every push to main automatically publishes a new :latest image.
+# To update, run in the TrueNAS shell (or Apps → Shell):
+#
+#   docker pull ghcr.io/graphite-productions/gaggimate-bridge:latest
+#   docker restart gaggimate-bridge
+#
+# The startup log will print the version (build date + short commit hash).
+# You can also check: curl http://localhost:3000/health | grep version
+#
 # Required environment variables:
 #   GAGGIMATE_HOST        - GaggiMate IP address (e.g., 192.168.1.100)
 #   NOTION_API_KEY        - Notion integration token (starts with ntn_)
@@ -14,6 +23,7 @@
 #   GAGGIMATE_PROTOCOL    - ws (default) or wss
 #   WEBHOOK_SECRET        - Notion webhook secret
 #   SYNC_INTERVAL_MS      - Shot polling interval in ms (default: 30000)
+#   BREW_REPAIR_INTERVAL_MS - Stale brew repair interval in ms (default: 3600000)
 #   PROFILE_RECONCILE_ENABLED - true (default) or false
 #   PROFILE_RECONCILE_INTERVAL_MS - profile reconcile interval in ms (default: 30000)
 #   RECENT_SHOT_LOOKBACK_COUNT - Recent shot rows to re-hydrate each poll (default: 5)

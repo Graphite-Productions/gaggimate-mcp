@@ -40,7 +40,14 @@ function validateConfig(): void {
 async function main() {
   validateConfig();
 
+  const buildDate = process.env.BUILD_DATE;
+  const gitSha = process.env.GIT_SHA;
+  const version = buildDate
+    ? `${buildDate}${gitSha ? ` (${gitSha.slice(0, 7)})` : ""}`
+    : "dev";
+
   console.log("GaggiMate Notion Bridge starting...");
+  console.log(`  Version: ${version}`);
   console.log(`  GaggiMate: ${config.gaggimate.protocol}://${config.gaggimate.host}`);
   console.log(`  HTTP port: ${config.http.port}`);
   console.log(`  Shot sync interval: ${config.sync.intervalMs}ms`);

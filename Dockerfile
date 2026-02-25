@@ -30,6 +30,12 @@ ENV GAGGIMATE_PROTOCOL=ws
 ENV HTTP_PORT=3000
 ENV DATA_DIR=/app/data
 
+# Build metadata — injected by CI via --build-arg
+ARG BUILD_DATE
+ARG GIT_SHA
+ENV BUILD_DATE=${BUILD_DATE}
+ENV GIT_SHA=${GIT_SHA}
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
