@@ -35,6 +35,22 @@ function validateConfig(): void {
   if (!config.webhook.secret) {
     console.warn("WEBHOOK_SECRET is not set — webhook signature verification is disabled");
   }
+
+  const deprecatedEnvMappings: Array<{ legacyKey: string; replacement: string }> = [
+    {
+      legacyKey: "POLLING_FALLBACK",
+      replacement: "Remove it (profile reconcile is always active when PROFILE_RECONCILE_ENABLED=true).",
+    },
+    {
+      legacyKey: "PROFILE_POLL_INTERVAL_MS",
+      replacement: "Use PROFILE_RECONCILE_INTERVAL_MS.",
+    },
+  ];
+  for (const { legacyKey, replacement } of deprecatedEnvMappings) {
+    if (process.env[legacyKey] !== undefined) {
+      console.warn(`Deprecated env var ${legacyKey} is set and ignored. ${replacement}`);
+    }
+  }
 }
 
 async function main() {
