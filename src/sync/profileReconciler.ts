@@ -29,6 +29,8 @@ export class ProfileReconciler {
   // hammer an offline device on every interval.
   private connectivityCooldownUntil = 0;
   private readonly CONNECTIVITY_COOLDOWN_MS = 3 * 60_000; // 3 minutes
+  private cooldownLogMutedUntil = 0;
+  private readonly COOLDOWN_LOG_INTERVAL_MS = 60_000;
   // Cooldown: skip backfill until this timestamp to avoid hammering Notion/GaggiMate
   // when there's nothing to link or brews are persistently unresolvable.
   private backfillSkipUntil = 0;
@@ -55,8 +57,20 @@ export class ProfileReconciler {
   }
 
   private async reconcile(): Promise<void> {
-    if (this.running) return;
-    if (Date.now() < this.connectivityCooldownUntil) return;
+    if (this.running) {
+      console.log("Profile reconciler: previous cycle still in progress, skipping interval");
+      return;
+    }
+    if (Date.now() < this.connectivityCooldownUntil) {
+      const now = Date.now();
+      if (now >= this.cooldownLogMutedUntil) {
+        const remainingMs = Math.max(0, this.connectivityCooldownUntil - now);
+        const remainingSeconds = Math.ceil(remainingMs / 1000);
+        console.log(`Profile reconciler: connectivity cooldown active (${remainingSeconds}s remaining), skipping interval`);
+        this.cooldownLogMutedUntil = now + this.COOLDOWN_LOG_INTERVAL_MS;
+      }
+      return;
+    }
     const cycleStartedAt = Date.now();
     let processedNotionProfiles = 0;
     let importedThisRun = 0;
@@ -83,6 +97,7 @@ export class ProfileReconciler {
             console.log("Profile reconciler: GaggiMate connectivity restored");
             this.connectivityWarningActive = false;
             this.connectivityCooldownUntil = 0;
+            this.cooldownLogMutedUntil = 0;
           }
         } catch (error) {
           if (isConnectivityError(error)) {
@@ -533,6 +548,7 @@ export class ProfileReconciler {
     let scanned = 0;
     let linked = 0;
     const maxRowsPerRun = 1000;
+    let connectivityInterrupted = false;
 
     while (scanned < maxRowsPerRun) {
       const remaining = maxRowsPerRun - scanned;
@@ -541,14 +557,20 @@ export class ProfileReconciler {
         break;
       }
 
-      scanned += candidates.length;
       for (const brew of candidates) {
+        scanned += 1;
         try {
           if (!brew.activityId) {
             continue;
           }
 
           const shot = await this.gaggimate.fetchShot(brew.activityId);
+          if (this.connectivityWarningActive) {
+            console.log("Profile reconciler: GaggiMate connectivity restored");
+            this.connectivityWarningActive = false;
+            this.connectivityCooldownUntil = 0;
+            this.cooldownLogMutedUntil = 0;
+          }
           if (!shot?.profileName) {
             continue;
           }
@@ -563,13 +585,33 @@ export class ProfileReconciler {
           await this.notion.setBrewProfileRelation(brew.pageId, profilePageId);
           linked += 1;
         } catch (error) {
+          if (isConnectivityError(error)) {
+            const summary = summarizeConnectivityError(error);
+            if (!this.connectivityWarningActive) {
+              console.warn(`Profile reconciler: GaggiMate unreachable during brew backfill (${summary}), pausing backfill`);
+              this.connectivityWarningActive = true;
+            }
+            const cooldownUntil = Date.now() + this.CONNECTIVITY_COOLDOWN_MS;
+            this.connectivityCooldownUntil = Math.max(this.connectivityCooldownUntil, cooldownUntil);
+            this.backfillSkipUntil = Math.max(this.backfillSkipUntil, cooldownUntil);
+            connectivityInterrupted = true;
+            break;
+          }
           console.error(`Brew ${brew.pageId}: profile backfill failed:`, error);
+        }
+
+        if (scanned >= maxRowsPerRun) {
+          break;
         }
       }
 
-      if (candidates.length < 100) {
+      if (connectivityInterrupted || scanned >= maxRowsPerRun || candidates.length < 100) {
         break;
       }
+    }
+
+    if (connectivityInterrupted) {
+      return { scanned, linked };
     }
 
     // Set cooldown based on outcome to avoid repeated expensive cycles:

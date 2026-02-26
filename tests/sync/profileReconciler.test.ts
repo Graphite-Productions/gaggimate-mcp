@@ -882,6 +882,54 @@ describe("ProfileReconciler", () => {
     expect(notion.setBrewProfileRelation).toHaveBeenCalledWith("brew-page", "profile-page-id");
   });
 
+  it("pauses backfill quickly on connectivity errors and applies reconcile cooldown", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.fetchShot.mockRejectedValue(new Error("WebSocket error: connect EHOSTUNREACH 192.168.68.51:80"));
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [createProfileRecord({ pushStatus: "Draft" })],
+    });
+    notion.listBrewsMissingProfileRelation.mockResolvedValue([
+      { pageId: "brew-1", activityId: "001" },
+      { pageId: "brew-2", activityId: "002" },
+    ]);
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reconciler = new ProfileReconciler(gaggimate as any, notion as any, {
+        intervalMs: 1000,
+        deleteEnabled: true,
+        maxDeletesPerRun: 3,
+        maxSavesPerRun: 5,
+        importUnmatchedDeviceProfiles: false,
+      });
+
+      await (reconciler as any).reconcile();
+
+      // Should not snapshot profiles in this draft-only scenario.
+      expect(gaggimate.fetchProfiles).not.toHaveBeenCalled();
+      // Should stop on first connectivity failure instead of hammering every brew row.
+      expect(gaggimate.fetchShot).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("GaggiMate unreachable during brew backfill"),
+      );
+
+      await (reconciler as any).reconcile();
+      // Second call should return early due connectivity cooldown (no extra backfill API calls).
+      expect(notion.listExistingProfiles).toHaveBeenCalledTimes(1);
+      expect(notion.listBrewsMissingProfileRelation).toHaveBeenCalledTimes(1);
+      expect(gaggimate.fetchShot).toHaveBeenCalledTimes(1);
+      expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining("profile backfill failed"), expect.anything());
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
   it("skips cycle cleanly when device fetch times out", async () => {
     const gaggimate = createMockGaggimate();
     gaggimate.fetchProfiles.mockRejectedValue(new Error("Request timeout: No response"));
@@ -900,5 +948,51 @@ describe("ProfileReconciler", () => {
     await runReconcile(gaggimate as any, notion as any);
 
     expect(notion.createDraftProfile).not.toHaveBeenCalled();
+  });
+
+  it("logs and skips when a previous reconcile cycle is still running", async () => {
+    const gaggimate = createMockGaggimate();
+    const notion = createMockNotion();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      const reconciler = new ProfileReconciler(gaggimate as any, notion as any, {
+        intervalMs: 1000,
+        deleteEnabled: true,
+        maxDeletesPerRun: 3,
+        maxSavesPerRun: 5,
+      });
+
+      (reconciler as any).running = true;
+      await (reconciler as any).reconcile();
+
+      expect(logSpy).toHaveBeenCalledWith("Profile reconciler: previous cycle still in progress, skipping interval");
+      expect(notion.listExistingProfiles).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("logs and skips while connectivity cooldown is active", async () => {
+    const gaggimate = createMockGaggimate();
+    const notion = createMockNotion();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      const reconciler = new ProfileReconciler(gaggimate as any, notion as any, {
+        intervalMs: 1000,
+        deleteEnabled: true,
+        maxDeletesPerRun: 3,
+        maxSavesPerRun: 5,
+      });
+
+      (reconciler as any).connectivityCooldownUntil = Date.now() + 15_000;
+      await (reconciler as any).reconcile();
+
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Profile reconciler: connectivity cooldown active"));
+      expect(notion.listExistingProfiles).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });
