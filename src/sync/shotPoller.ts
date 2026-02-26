@@ -31,6 +31,8 @@ export class ShotPoller {
   private fullySyncedShots = new Set<string>();
   // Timestamp anchor used by repair scheduling (0 = never run).
   private repairLastRun = 0;
+  // Rotating cursor so repair batches eventually cover the full window.
+  private repairCursorOffset = 0;
   // How many past shots to scan for stale/missing data on each repair pass.
   private readonly REPAIR_WINDOW = 50;
   // Process stale-brew repairs in small chunks so one pass cannot starve shot ingest.
@@ -102,12 +104,17 @@ export class ShotPoller {
       .sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
 
     if (candidates.length === 0) {
+      this.repairCursorOffset = 0;
       this.repairLastRun = now;
       return;
     }
-
-    const batchCandidates = candidates.slice(0, this.REPAIR_BATCH_SIZE);
-    const hasMoreCandidates = candidates.length > batchCandidates.length;
+    const startIndex = this.repairCursorOffset % candidates.length;
+    const batchSize = Math.min(this.REPAIR_BATCH_SIZE, candidates.length);
+    const batchCandidates: ShotListItem[] = [];
+    for (let i = 0; i < batchSize; i += 1) {
+      batchCandidates.push(candidates[(startIndex + i) % candidates.length]);
+    }
+    const hasMoreCandidates = candidates.length > batchSize;
 
     let repairedCount = 0;
     let processedCount = 0;
@@ -170,11 +177,13 @@ export class ShotPoller {
 
     if (hasMoreCandidates) {
       // Keep the normal large repair interval, but fast-forward the next chunk.
+      this.repairCursorOffset = (startIndex + batchSize) % candidates.length;
       this.repairLastRun = now - this.options.repairIntervalMs + this.REPAIR_CONTINUATION_DELAY_MS;
       console.log(
         `Repair scan: processed ${processedCount}/${candidates.length} shot(s); continuing in ${this.REPAIR_CONTINUATION_DELAY_MS}ms`,
       );
     } else {
+      this.repairCursorOffset = 0;
       this.repairLastRun = now;
     }
 

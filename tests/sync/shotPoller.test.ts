@@ -374,6 +374,54 @@ describe("ShotPoller", () => {
     }
   });
 
+  it("rotates repair batches so missing brew pages do not starve later candidates", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "shot-poller-test-"));
+    const shots = Array.from({ length: 6 }, (_, idx) => ({ id: String(6 - idx), incomplete: false }));
+
+    const gaggimate = {
+      fetchShotHistory: vi.fn().mockResolvedValue(shots),
+      fetchShot: vi.fn(),
+      fetchProfiles: vi.fn(),
+      uploadBrewChart: vi.fn().mockResolvedValue(true),
+    };
+
+    const notion = {
+      findBrewByShotId: vi.fn().mockResolvedValue(null),
+      getBrewShotJson: vi.fn(),
+      hasProfileByName: vi.fn().mockResolvedValue(true),
+      normalizeProfileName: vi.fn().mockImplementation((name: string) => name.trim().toLowerCase()),
+      createDraftProfile: vi.fn(),
+      uploadProfileImage: vi.fn(),
+      createBrew: vi.fn(),
+      updateBrewFromData: vi.fn().mockResolvedValue(undefined),
+      brewHasProfileImage: vi.fn().mockResolvedValue(false),
+      imageUploadDisabled: null,
+      uploadBrewChart: vi.fn().mockResolvedValue(true),
+    };
+
+    try {
+      const poller = new ShotPoller(gaggimate as any, notion as any, {
+        intervalMs: 1000,
+        dataDir,
+        recentShotLookbackCount: 0,
+        brewTitleTimeZone: "America/Los_Angeles",
+        repairIntervalMs: 1,
+      });
+
+      (poller as any).state.lastSyncedShotId = "6";
+
+      await (poller as any).poll();
+      expect(notion.findBrewByShotId.mock.calls.slice(0, 3).map((args: any[]) => args[0])).toEqual(["1", "2", "3"]);
+
+      // Force immediate follow-up repair pass in test (instead of waiting continuation delay).
+      (poller as any).repairLastRun = 0;
+      await (poller as any).poll();
+      expect(notion.findBrewByShotId.mock.calls.slice(3, 6).map((args: any[]) => args[0])).toEqual(["4", "5", "6"]);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("skips polling while connectivity cooldown is active and resumes when device recovers", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "shot-poller-test-"));
     const networkError: any = new TypeError("fetch failed");
