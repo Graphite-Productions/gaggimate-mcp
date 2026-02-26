@@ -453,4 +453,55 @@ describe("webhook route status handling", () => {
       (config as any).webhook.secret = originalSecret;
     }
   });
+
+  it("applies verification_token at runtime when WEBHOOK_SECRET is a sha256 digest", async () => {
+    const originalSecret = config.webhook.secret;
+    (config as any).webhook.secret = `sha256=${"a".repeat(64)}`;
+    try {
+      const gaggimate = createMockGaggimate();
+      const notion = createMockNotion();
+      notion.getProfilePageData.mockResolvedValue({
+        profileJson: JSON.stringify({ id: "device-runtime", label: "Profile" }),
+        pushStatus: "Pushed",
+        favorite: false,
+        selected: false,
+      });
+      notion.extractProfileIdFromJson.mockReturnValue("device-runtime");
+
+      const router = createWebhookRouter(gaggimate as any, notion as any);
+      const handler = getNotionWebhookHandler(router);
+
+      const verificationReq = {
+        body: { verification_token: "runtime-verification-token" },
+        headers: {},
+        rawBody: JSON.stringify({ verification_token: "runtime-verification-token" }),
+      };
+      const verificationRes = createResponse();
+      await handler(verificationReq, verificationRes);
+      expect(verificationRes.jsonBody).toEqual({ ok: true, action: "verification_token_received" });
+
+      const eventBody = {
+        type: "page.properties_updated",
+        entity: { type: "page", id: "page-runtime-secret" },
+      };
+      const eventRawBody = JSON.stringify(eventBody);
+      const eventReq = {
+        body: eventBody,
+        headers: {
+          "x-notion-signature": buildNotionWebhookSignature(eventRawBody, "runtime-verification-token"),
+        },
+        rawBody: eventRawBody,
+      };
+      const eventRes = createResponse();
+      await handler(eventReq, eventRes);
+
+      expect(eventRes.statusCode).toBe(200);
+      expect(eventRes.jsonBody).toEqual({ ok: true, action: "accepted" });
+      await vi.waitFor(() => {
+        expect(notion.getProfilePageData).toHaveBeenCalledWith("page-runtime-secret");
+      });
+    } finally {
+      (config as any).webhook.secret = originalSecret;
+    }
+  });
 });

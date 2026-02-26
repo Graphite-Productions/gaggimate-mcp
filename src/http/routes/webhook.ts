@@ -22,6 +22,10 @@ export function isWebhookSecretConfigured(secret: string): boolean {
   return secret.trim().length > 0;
 }
 
+function looksLikeSignatureDigest(value: string): boolean {
+  return /^sha256=[a-f0-9]{64}$/i.test(value.trim());
+}
+
 function toHeaderString(value: string | string[] | undefined): string | null {
   if (typeof value === "string") {
     return value;
@@ -126,6 +130,7 @@ async function processWebhookEvent(
 
 export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionClient): Router {
   const router = Router();
+  let webhookVerificationToken = config.webhook.secret;
   let warnedMissingSecret = false;
   let signatureMismatchLogMutedUntil = 0;
   let suppressedSignatureMismatchCount = 0;
@@ -143,9 +148,12 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
     const suppressedSummary = suppressedSignatureMismatchCount > 0
       ? ` (${suppressedSignatureMismatchCount} additional mismatches suppressed in the last ${Math.round(SIGNATURE_MISMATCH_LOG_INTERVAL_MS / 1000)}s)`
       : "";
+    const misconfiguredDigestHint = looksLikeSignatureDigest(webhookVerificationToken)
+      ? " WEBHOOK_SECRET currently looks like an X-Notion-Signature digest; use the raw verification_token value."
+      : "";
     console.warn(
       `Webhook signature mismatch — rejecting${suppressedSummary}. ` +
-      "Check WEBHOOK_SECRET matches Notion's raw verification token (not a sha256=... signature value).",
+      `Check WEBHOOK_SECRET matches Notion's raw verification token (not a sha256=... signature value).${misconfiguredDigestHint}`,
     );
     suppressedSignatureMismatchCount = 0;
     signatureMismatchLogMutedUntil = now + SIGNATURE_MISMATCH_LOG_INTERVAL_MS;
@@ -181,7 +189,20 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
   router.post("/notion", async (req, res) => {
     try {
       if (typeof req.body?.verification_token === "string") {
-        console.log("Notion webhook verification token received. Save this token to WEBHOOK_SECRET.");
+        const verificationToken = req.body.verification_token.trim();
+        if (
+          verificationToken &&
+          (!isWebhookSecretConfigured(webhookVerificationToken) || looksLikeSignatureDigest(webhookVerificationToken))
+        ) {
+          webhookVerificationToken = verificationToken;
+          warnedMissingSecret = false;
+          console.log(
+            "Notion webhook verification token received and applied for this process. " +
+            "Save this token to WEBHOOK_SECRET for persistence across restarts.",
+          );
+        } else {
+          console.log("Notion webhook verification token received. Save this token to WEBHOOK_SECRET.");
+        }
         res.json({ ok: true, action: "verification_token_received" });
         return;
       }
@@ -196,9 +217,9 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
       const rawBody = typeof (req as any).rawBody === "string"
         ? (req as any).rawBody
         : JSON.stringify(req.body ?? {});
-      if (isWebhookSecretConfigured(config.webhook.secret)) {
+      if (isWebhookSecretConfigured(webhookVerificationToken)) {
         const signature = req.headers["x-notion-signature"];
-        const trusted = isValidNotionWebhookSignature(rawBody, signature, config.webhook.secret);
+        const trusted = isValidNotionWebhookSignature(rawBody, signature, webhookVerificationToken);
         if (!trusted) {
           logSignatureMismatch();
           res.status(401).json({ error: "Invalid webhook signature" });
