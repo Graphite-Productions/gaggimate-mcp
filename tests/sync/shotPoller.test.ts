@@ -426,6 +426,7 @@ describe("ShotPoller", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "shot-poller-test-"));
     const networkError: any = new TypeError("fetch failed");
     networkError.cause = { code: "EHOSTUNREACH" };
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     let callCount = 0;
     const gaggimate = {
@@ -471,6 +472,7 @@ describe("ShotPoller", () => {
       // Poll 2: still in cooldown — fetchShotHistory must NOT be called again
       await (poller as any).poll();
       expect(gaggimate.fetchShotHistory).toHaveBeenCalledTimes(1); // unchanged
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Shot poller: connectivity cooldown active"));
 
       // Simulate cooldown expiry
       (poller as any).connectivityCooldownUntil = 0;
@@ -480,6 +482,7 @@ describe("ShotPoller", () => {
       expect(gaggimate.fetchShotHistory).toHaveBeenCalledTimes(2);
       expect((poller as any).connectivityCooldownUntil).toBe(0); // cleared on success
     } finally {
+      logSpy.mockRestore();
       rmSync(dataDir, { recursive: true, force: true });
     }
   });
@@ -528,6 +531,63 @@ describe("ShotPoller", () => {
     } finally {
       warnSpy.mockRestore();
       errorSpy.mockRestore();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("pauses repair scan quickly on connectivity errors and applies cooldown", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "shot-poller-test-"));
+    const networkError: any = new TypeError("fetch failed");
+    networkError.cause = { code: "EHOSTUNREACH", message: "connect EHOSTUNREACH 192.168.68.51:80" };
+
+    const gaggimate = {
+      fetchShotHistory: vi.fn().mockResolvedValue([
+        { id: "3", incomplete: false },
+        { id: "2", incomplete: false },
+        { id: "1", incomplete: false },
+      ]),
+      fetchShot: vi.fn().mockRejectedValue(networkError),
+      fetchProfiles: vi.fn(),
+      uploadBrewChart: vi.fn(),
+    };
+
+    const notion = {
+      findBrewByShotId: vi.fn().mockResolvedValue("brew-page"),
+      getBrewShotJson: vi.fn().mockResolvedValue(JSON.stringify({ metadata: { sample_count: 0 } })),
+      hasProfileByName: vi.fn(),
+      normalizeProfileName: vi.fn(),
+      createDraftProfile: vi.fn(),
+      uploadProfileImage: vi.fn(),
+      createBrew: vi.fn(),
+      updateBrewFromData: vi.fn(),
+      brewHasProfileImage: vi.fn().mockResolvedValue(true),
+      imageUploadDisabled: null,
+      uploadBrewChart: vi.fn(),
+    };
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const poller = new ShotPoller(gaggimate as any, notion as any, {
+        intervalMs: 1000,
+        dataDir,
+        recentShotLookbackCount: 0,
+        brewTitleTimeZone: "America/Los_Angeles",
+        repairIntervalMs: 1,
+      });
+
+      (poller as any).state.lastSyncedShotId = "3";
+
+      await (poller as any).poll();
+      expect(gaggimate.fetchShot).toHaveBeenCalledTimes(1);
+      expect((poller as any).connectivityCooldownUntil).toBeGreaterThan(Date.now());
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Shot poller: GaggiMate unreachable"));
+
+      await (poller as any).poll();
+      expect(gaggimate.fetchShotHistory).toHaveBeenCalledTimes(1);
+      expect(gaggimate.fetchShot).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
       rmSync(dataDir, { recursive: true, force: true });
     }
   });

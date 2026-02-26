@@ -26,6 +26,8 @@ export class ShotPoller {
   // offline device every interval — resets as soon as the device responds again).
   private connectivityCooldownUntil = 0;
   private readonly CONNECTIVITY_COOLDOWN_MS = 3 * 60_000; // 3 minutes
+  private cooldownLogMutedUntil = 0;
+  private readonly COOLDOWN_LOG_INTERVAL_MS = 60_000;
   private state: SyncState;
   // Tracks shots confirmed fully synced (brew + chart + JSON) so lookback skips them.
   private fullySyncedShots = new Set<string>();
@@ -118,6 +120,7 @@ export class ShotPoller {
 
     let repairedCount = 0;
     let processedCount = 0;
+    let connectivityInterrupted = false;
 
     for (const shotListItem of batchCandidates) {
       processedCount += 1;
@@ -171,8 +174,17 @@ export class ShotPoller {
           console.log(`Shot ${shotListItem.id}: repaired brew (${parts.join(" + ")} re-synced)`);
         }
       } catch (err) {
+        if (isConnectivityError(err)) {
+          this.warnConnectivityIssue(err);
+          connectivityInterrupted = true;
+          break;
+        }
         console.warn(`Shot ${shotListItem.id}: repair failed`, err);
       }
+    }
+
+    if (connectivityInterrupted) {
+      return;
     }
 
     if (hasMoreCandidates) {
@@ -198,7 +210,7 @@ export class ShotPoller {
       console.warn(`Shot poller: GaggiMate unreachable (${summary}), will retry next interval`);
       this.connectivityWarningActive = true;
     }
-    this.connectivityCooldownUntil = Date.now() + this.CONNECTIVITY_COOLDOWN_MS;
+    this.connectivityCooldownUntil = Math.max(this.connectivityCooldownUntil, Date.now() + this.CONNECTIVITY_COOLDOWN_MS);
   }
 
   private clearConnectivityWarning(): void {
@@ -207,6 +219,7 @@ export class ShotPoller {
       this.connectivityWarningActive = false;
     }
     this.connectivityCooldownUntil = 0;
+    this.cooldownLogMutedUntil = 0;
   }
 
   private async poll(): Promise<void> {
@@ -217,6 +230,13 @@ export class ShotPoller {
     }
     // Skip the poll body entirely while the device is in connectivity cooldown.
     if (Date.now() < this.connectivityCooldownUntil) {
+      const now = Date.now();
+      if (now >= this.cooldownLogMutedUntil) {
+        const remainingMs = Math.max(0, this.connectivityCooldownUntil - now);
+        const remainingSeconds = Math.ceil(remainingMs / 1000);
+        console.log(`Shot poller: connectivity cooldown active (${remainingSeconds}s remaining), skipping interval`);
+        this.cooldownLogMutedUntil = now + this.COOLDOWN_LOG_INTERVAL_MS;
+      }
       return;
     }
     const pollStartedAt = Date.now();
