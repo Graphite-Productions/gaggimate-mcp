@@ -6,18 +6,29 @@ export interface ProfilePreferenceState {
   selected: boolean;
 }
 
+export interface ProfilePreferenceSyncOptions {
+  syncFavoriteToDevice?: boolean;
+  syncSelectedToDevice?: boolean;
+}
+
 export async function syncFavoriteAndSelectedFromNotion(
   gaggimate: GaggiMateClient,
   notion: NotionClient,
   pageId: string,
   profileId: string,
   preferenceState?: ProfilePreferenceState,
+  options?: ProfilePreferenceSyncOptions,
 ): Promise<void> {
   const { favorite, selected } = preferenceState ?? await notion.getProfilePreferenceState(pageId);
   // Both operations are independent — run in parallel to minimize device round-trips.
-  const tasks: Promise<void>[] = [gaggimate.favoriteProfile(profileId, favorite)];
-  if (selected) {
+  const tasks: Promise<void>[] = [];
+  if (options?.syncFavoriteToDevice !== false) {
+    tasks.push(gaggimate.favoriteProfile(profileId, favorite));
+  }
+  if (options?.syncSelectedToDevice !== false && selected) {
     tasks.push(gaggimate.selectProfile(profileId));
   }
-  await Promise.all(tasks);
+  if (tasks.length > 0) {
+    await Promise.all(tasks);
+  }
 }

@@ -100,6 +100,37 @@ describe("pushProfileToGaggiMate", () => {
     expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-xyz");
   });
 
+  it("respects preference sync options and skips favorite/selected device writes when disabled", async () => {
+    const gaggimate = createMockGaggiMate();
+    gaggimate.saveProfile.mockResolvedValue({ id: "device-xyz" });
+    const notion = createMockNotion();
+
+    const profileJson = JSON.stringify({
+      label: "My Profile",
+      temperature: 93,
+      phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+    });
+
+    await pushProfileToGaggiMate(
+      gaggimate as any,
+      notion as any,
+      "page-pref-disabled",
+      profileJson,
+      { favorite: true, selected: true },
+      { syncFavoriteToDevice: false, syncSelectedToDevice: false },
+    );
+
+    expect(gaggimate.favoriteProfile).not.toHaveBeenCalled();
+    expect(gaggimate.selectProfile).not.toHaveBeenCalled();
+    expect(notion.updatePushStatus).toHaveBeenCalledWith(
+      "page-pref-disabled",
+      "Pushed",
+      expect.any(String),
+      true,
+      expect.any(String),
+    );
+  });
+
   it("still marks profile pushed when preference sync fails", async () => {
     const gaggimate = createMockGaggiMate();
     gaggimate.saveProfile.mockResolvedValue({ id: "device-xyz" });

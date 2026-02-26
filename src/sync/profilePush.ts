@@ -1,7 +1,11 @@
 import type { GaggiMateClient } from "../gaggimate/client.js";
 import { normalizeProfileForGaggiMate } from "../gaggimate/profileNormalization.js";
 import type { NotionClient } from "../notion/client.js";
-import { syncFavoriteAndSelectedFromNotion, type ProfilePreferenceState } from "./profilePreferenceSync.js";
+import {
+  syncFavoriteAndSelectedFromNotion,
+  type ProfilePreferenceState,
+  type ProfilePreferenceSyncOptions,
+} from "./profilePreferenceSync.js";
 
 /**
  * Parse and validate Profile JSON, push to GaggiMate, update Notion status.
@@ -13,6 +17,7 @@ export async function pushProfileToGaggiMate(
   pageId: string,
   profileJsonStr: string,
   preferenceState?: ProfilePreferenceState,
+  syncOptions?: ProfilePreferenceSyncOptions,
 ): Promise<void> {
   let profile: any;
   try {
@@ -55,7 +60,14 @@ export async function pushProfileToGaggiMate(
     const effectiveProfileId = savedId || notion.extractProfileId(profile);
     if (effectiveProfileId) {
       try {
-        await syncFavoriteAndSelectedFromNotion(gaggimate, notion, pageId, effectiveProfileId, preferenceState);
+        await syncFavoriteAndSelectedFromNotion(
+          gaggimate,
+          notion,
+          pageId,
+          effectiveProfileId,
+          preferenceState,
+          syncOptions,
+        );
       } catch (error) {
         // Keep push success independent from preference sync; reconciler will retry.
         console.warn(`Profile ${pageId}: favorite/selected sync failed after push:`, error);

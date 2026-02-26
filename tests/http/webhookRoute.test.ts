@@ -263,6 +263,54 @@ describe("webhook route status handling", () => {
     expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
   });
 
+  it("does not sync queued push favorite/selected when device preference sync is disabled", async () => {
+    const originalSyncFavorite = config.sync.profileSyncFavoriteToDevice;
+    const originalSyncSelected = config.sync.profileSyncSelectedToDevice;
+    (config as any).sync.profileSyncFavoriteToDevice = false;
+    (config as any).sync.profileSyncSelectedToDevice = false;
+    try {
+      const gaggimate = createMockGaggimate();
+      const notion = createMockNotion();
+      notion.getProfilePageData.mockResolvedValue({
+        profileJson: JSON.stringify({
+          label: "Queued Profile",
+          temperature: 93,
+          phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+        }),
+        pushStatus: "Queued",
+        favorite: true,
+        selected: true,
+      });
+
+      const router = createWebhookRouter(gaggimate as any, notion as any);
+      const handler = getNotionWebhookHandler(router);
+      const req = createSignedRequest({
+        type: "page.properties_updated",
+        entity: { type: "page", id: "page-queued-no-pref-sync" },
+      });
+      const res = createResponse();
+
+      await handler(req, res);
+      expect(res.jsonBody).toEqual({ ok: true, action: "accepted" });
+
+      await vi.waitFor(() => {
+        expect(notion.updatePushStatus).toHaveBeenCalledWith(
+          "page-queued-no-pref-sync",
+          "Pushed",
+          expect.any(String),
+          true,
+          expect.any(String),
+        );
+      });
+      expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
+      expect(gaggimate.favoriteProfile).not.toHaveBeenCalled();
+      expect(gaggimate.selectProfile).not.toHaveBeenCalled();
+    } finally {
+      (config as any).sync.profileSyncFavoriteToDevice = originalSyncFavorite;
+      (config as any).sync.profileSyncSelectedToDevice = originalSyncSelected;
+    }
+  });
+
   it("coalesces concurrent events for the same page into serialized background runs", async () => {
     const originalSyncFavorite = config.sync.profileSyncFavoriteToDevice;
     (config as any).sync.profileSyncFavoriteToDevice = true;

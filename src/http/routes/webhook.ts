@@ -80,7 +80,17 @@ async function processWebhookEvent(
   }
 
   if (action === "push_queued") {
-    await pushProfileToGaggiMate(gaggimate, notion, pageId, profileJson, { favorite, selected });
+    await pushProfileToGaggiMate(
+      gaggimate,
+      notion,
+      pageId,
+      profileJson,
+      { favorite, selected },
+      {
+        syncFavoriteToDevice: config.sync.profileSyncFavoriteToDevice,
+        syncSelectedToDevice: config.sync.profileSyncSelectedToDevice,
+      },
+    );
     return;
   }
 
