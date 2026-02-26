@@ -90,15 +90,27 @@ async function processWebhookEvent(
     return;
   }
 
-  const tasks: Promise<void>[] = [];
+  const tasks: Array<{ action: "favorite" | "select"; task: Promise<void> }> = [];
   if (config.sync.profileSyncFavoriteToDevice) {
-    tasks.push(gaggimate.favoriteProfile(profileId, favorite));
+    tasks.push({
+      action: "favorite",
+      task: gaggimate.favoriteProfile(profileId, favorite),
+    });
   }
   if (config.sync.profileSyncSelectedToDevice && selected) {
-    tasks.push(gaggimate.selectProfile(profileId));
+    tasks.push({
+      action: "select",
+      task: gaggimate.selectProfile(profileId),
+    });
   }
   if (tasks.length > 0) {
-    await Promise.all(tasks);
+    const results = await Promise.allSettled(tasks.map((entry) => entry.task));
+    for (let index = 0; index < results.length; index += 1) {
+      const result = results[index];
+      if (result.status === "rejected") {
+        console.warn(`Webhook for page ${pageId}: ${tasks[index].action} sync failed`, result.reason);
+      }
+    }
   }
 }
 

@@ -317,4 +317,49 @@ describe("webhook route status handling", () => {
       (config as any).sync.profileSyncFavoriteToDevice = originalSyncFavorite;
     }
   });
+
+  it("continues webhook preference sync when one operation fails", async () => {
+    const originalSyncFavorite = config.sync.profileSyncFavoriteToDevice;
+    const originalSyncSelected = config.sync.profileSyncSelectedToDevice;
+    (config as any).sync.profileSyncFavoriteToDevice = true;
+    (config as any).sync.profileSyncSelectedToDevice = true;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const gaggimate = createMockGaggimate();
+      gaggimate.favoriteProfile.mockRejectedValue(new Error("favorite failed"));
+      const notion = createMockNotion();
+      notion.getProfilePageData.mockResolvedValue({
+        profileJson: JSON.stringify({ id: "device-continue", label: "Profile" }),
+        pushStatus: "Pushed",
+        favorite: true,
+        selected: true,
+      });
+      notion.extractProfileIdFromJson.mockReturnValue("device-continue");
+
+      const router = createWebhookRouter(gaggimate as any, notion as any);
+      const handler = getNotionWebhookHandler(router);
+      const req = createSignedRequest({
+        type: "page.properties_updated",
+        entity: { type: "page", id: "page-continue" },
+      });
+      const res = createResponse();
+
+      await handler(req, res);
+      expect(res.jsonBody).toEqual({ ok: true, action: "accepted" });
+
+      await vi.waitFor(() => {
+        expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-continue", true);
+        expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-continue");
+      });
+      // Preference sync failures should be downgraded to warnings, not hard webhook errors.
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("Webhook background processing failed"),
+        expect.anything(),
+      );
+    } finally {
+      errorSpy.mockRestore();
+      (config as any).sync.profileSyncFavoriteToDevice = originalSyncFavorite;
+      (config as any).sync.profileSyncSelectedToDevice = originalSyncSelected;
+    }
+  });
 });
