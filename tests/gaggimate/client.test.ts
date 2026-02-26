@@ -297,4 +297,28 @@ describe("GaggiMateClient WebSocket request flow", () => {
     expect(fakeWs.send).toHaveBeenCalledTimes(2);
     expect(sentTypes).toEqual(["req:profiles:favorite", "req:profiles:unfavorite"]);
   });
+
+  it("keeps completed-command dedupe cache bounded", async () => {
+    const client = createClient() as any;
+    const fakeWs = {
+      send: vi.fn((payload: string, cb?: (error?: Error) => void) => {
+        cb?.();
+        const parsed = JSON.parse(payload);
+        client.handleSharedMessage(JSON.stringify({
+          tp: "res:profiles:select",
+          rid: parsed.rid,
+        }));
+      }),
+    };
+    client.getOrCreateWs = vi.fn().mockResolvedValue(fakeWs);
+
+    for (let i = 0; i < 1105; i += 1) {
+      // Unique IDs avoid short-window dedupe and force cache growth checks.
+      // eslint-disable-next-line no-await-in-loop
+      await client.selectProfile(`profile-${i}`);
+    }
+
+    expect(client.recentlyCompletedCommandDedupUntil.size).toBeLessThanOrEqual(1000);
+    expect(fakeWs.send).toHaveBeenCalledTimes(1105);
+  });
 });

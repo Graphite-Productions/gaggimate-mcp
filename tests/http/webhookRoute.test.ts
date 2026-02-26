@@ -564,4 +564,67 @@ describe("webhook route status handling", () => {
       (config as any).sync.profileSyncFavoriteToDevice = originalSyncFavorite;
     }
   });
+
+  it("marks coalesced event ids processed when the first event has no id", async () => {
+    const originalSyncFavorite = config.sync.profileSyncFavoriteToDevice;
+    (config as any).sync.profileSyncFavoriteToDevice = true;
+    try {
+      const gaggimate = createMockGaggimate();
+      const notion = createMockNotion();
+      let releaseFirstRun: (() => void) | null = null;
+
+      notion.getProfilePageData
+        .mockImplementationOnce(() => new Promise((resolve) => {
+          releaseFirstRun = () => resolve({
+            profileJson: JSON.stringify({ id: "device-coalesced-ids", label: "Profile" }),
+            pushStatus: "Pushed",
+            favorite: true,
+            selected: false,
+          });
+        }))
+        .mockResolvedValue({
+          profileJson: JSON.stringify({ id: "device-coalesced-ids", label: "Profile" }),
+          pushStatus: "Pushed",
+          favorite: true,
+          selected: false,
+        });
+      notion.extractProfileIdFromJson.mockReturnValue("device-coalesced-ids");
+
+      const router = createWebhookRouter(gaggimate as any, notion as any);
+      const handler = getNotionWebhookHandler(router);
+
+      const primaryBodyWithoutId = {
+        type: "page.properties_updated",
+        entity: { type: "page", id: "page-coalesced-ids" },
+      };
+      const secondaryBodyWithId = {
+        id: "event-coalesced-secondary",
+        type: "page.properties_updated",
+        entity: { type: "page", id: "page-coalesced-ids" },
+      };
+
+      const res1 = createResponse();
+      await handler(createSignedRequest(primaryBodyWithoutId), res1);
+      expect(res1.jsonBody).toEqual({ ok: true, action: "accepted" });
+
+      const res2 = createResponse();
+      await handler(createSignedRequest(secondaryBodyWithId), res2);
+      expect(res2.jsonBody).toEqual({ ok: true, action: "accepted" });
+      expect(notion.getProfilePageData).toHaveBeenCalledTimes(1);
+
+      releaseFirstRun?.();
+
+      await vi.waitFor(() => {
+        expect(notion.getProfilePageData).toHaveBeenCalledTimes(2);
+        expect(gaggimate.favoriteProfile).toHaveBeenCalledTimes(2);
+      });
+
+      const res3 = createResponse();
+      await handler(createSignedRequest(secondaryBodyWithId), res3);
+      expect(res3.jsonBody).toEqual({ ok: true, action: "accepted", deduped: true });
+      expect(notion.getProfilePageData).toHaveBeenCalledTimes(2);
+    } finally {
+      (config as any).sync.profileSyncFavoriteToDevice = originalSyncFavorite;
+    }
+  });
 });

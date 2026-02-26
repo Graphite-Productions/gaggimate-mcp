@@ -62,6 +62,7 @@ export class GaggiMateClient {
   // Deduplicate bursty idempotent profile commands (webhook retries / rapid UI clicks).
   // This is a short window only; we still allow re-sync shortly after.
   private readonly COMMAND_DEDUPE_WINDOW_MS = 1500;
+  private readonly COMMAND_DEDUPE_MAX = 1000;
   private inFlightCommandDedup = new Map<string, Promise<void>>();
   private recentlyCompletedCommandDedupUntil = new Map<string, number>();
 
@@ -215,6 +216,7 @@ export class GaggiMateClient {
 
   private runIdempotentCommandWithDedupe(key: string, operation: () => Promise<void>): Promise<void> {
     const now = Date.now();
+    this.pruneCompletedCommandDedupe(now);
     const suppressUntil = this.recentlyCompletedCommandDedupUntil.get(key) ?? 0;
     if (now < suppressUntil) {
       return Promise.resolve();
@@ -227,7 +229,9 @@ export class GaggiMateClient {
 
     const run = operation()
       .then(() => {
-        this.recentlyCompletedCommandDedupUntil.set(key, Date.now() + this.COMMAND_DEDUPE_WINDOW_MS);
+        const completedAt = Date.now();
+        this.recentlyCompletedCommandDedupUntil.set(key, completedAt + this.COMMAND_DEDUPE_WINDOW_MS);
+        this.pruneCompletedCommandDedupe(completedAt);
       })
       .finally(() => {
         this.inFlightCommandDedup.delete(key);
@@ -235,6 +239,26 @@ export class GaggiMateClient {
 
     this.inFlightCommandDedup.set(key, run);
     return run;
+  }
+
+  private pruneCompletedCommandDedupe(now: number): void {
+    for (const [dedupeKey, expiresAt] of this.recentlyCompletedCommandDedupUntil.entries()) {
+      if (expiresAt <= now) {
+        this.recentlyCompletedCommandDedupUntil.delete(dedupeKey);
+      }
+    }
+    if (this.recentlyCompletedCommandDedupUntil.size <= this.COMMAND_DEDUPE_MAX) {
+      return;
+    }
+    const overflow = this.recentlyCompletedCommandDedupUntil.size - this.COMMAND_DEDUPE_MAX;
+    let removed = 0;
+    for (const dedupeKey of this.recentlyCompletedCommandDedupUntil.keys()) {
+      this.recentlyCompletedCommandDedupUntil.delete(dedupeKey);
+      removed += 1;
+      if (removed >= overflow) {
+        break;
+      }
+    }
   }
 
   /**

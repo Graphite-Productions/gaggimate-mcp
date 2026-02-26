@@ -141,6 +141,8 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
   const rerunRequestedForPage = new Set<string>();
   const processedEventIds = new Map<string, number>();
   const inFlightEventIds = new Set<string>();
+  const queuedEventIds = new Set<string>();
+  const queuedEventIdsByPage = new Map<string, Set<string>>();
 
   const pruneProcessedEventIds = (now: number) => {
     for (const [eventId, expiresAt] of processedEventIds.entries()) {
@@ -186,6 +188,15 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
   const enqueuePageProcessing = (pageId: string, updatedProps: string[], eventId: string | null) => {
     if (inFlightPageProcessing.has(pageId)) {
       rerunRequestedForPage.add(pageId);
+      if (eventId) {
+        let queuedForPage = queuedEventIdsByPage.get(pageId);
+        if (!queuedForPage) {
+          queuedForPage = new Set<string>();
+          queuedEventIdsByPage.set(pageId, queuedForPage);
+        }
+        queuedForPage.add(eventId);
+        queuedEventIds.add(eventId);
+      }
       return;
     }
 
@@ -207,12 +218,26 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         } while (rerunRequestedForPage.has(pageId));
       } finally {
         inFlightPageProcessing.delete(pageId);
+        const queuedForPage = queuedEventIdsByPage.get(pageId);
+        queuedEventIdsByPage.delete(pageId);
+        if (queuedForPage) {
+          for (const queuedId of queuedForPage) {
+            queuedEventIds.delete(queuedId);
+          }
+        }
         if (eventId) {
           inFlightEventIds.delete(eventId);
-          if (completedWithoutUnhandledError) {
-            const now = Date.now();
-            pruneProcessedEventIds(now);
+        }
+        if (completedWithoutUnhandledError && (eventId || queuedForPage?.size)) {
+          const now = Date.now();
+          pruneProcessedEventIds(now);
+          if (eventId) {
             processedEventIds.set(eventId, now + WEBHOOK_EVENT_DEDUPE_TTL_MS);
+          }
+          if (queuedForPage) {
+            for (const queuedId of queuedForPage) {
+              processedEventIds.set(queuedId, now + WEBHOOK_EVENT_DEDUPE_TTL_MS);
+            }
           }
         }
       }
@@ -311,7 +336,7 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
       if (eventId) {
         const now = Date.now();
         pruneProcessedEventIds(now);
-        const isInFlightDuplicate = inFlightEventIds.has(eventId);
+        const isInFlightDuplicate = inFlightEventIds.has(eventId) || queuedEventIds.has(eventId);
         const processedUntil = processedEventIds.get(eventId) ?? 0;
         const isProcessedDuplicate = processedUntil > now;
         if (isInFlightDuplicate || isProcessedDuplicate) {
