@@ -123,4 +123,62 @@ describe("device route profile listing", () => {
       expect.objectContaining({ id: "device-3", label: "Recovery Profile", source: "notion" }),
     ]);
   });
+
+  it("caches profile list briefly to avoid repeated device list calls", async () => {
+    const gaggimate = {
+      fetchProfiles: vi.fn().mockResolvedValue([
+        { id: "device-1", label: "One", selected: true, favorite: false, type: "pro" },
+      ]),
+      selectProfile: vi.fn(),
+      favoriteProfile: vi.fn(),
+    };
+    const notion = {
+      listExistingProfiles: vi.fn().mockResolvedValue({
+        byName: new Map(),
+        byId: new Map(),
+        all: [],
+      }),
+    };
+
+    const router = createDeviceRouter(gaggimate as any, notion as any);
+    const handler = getRouteHandler(router, "/profiles", "get");
+
+    const res1 = createResponse();
+    await handler({}, res1);
+    const res2 = createResponse();
+    await handler({}, res2);
+
+    expect(res1.statusCode).toBe(200);
+    expect(res2.statusCode).toBe(200);
+    expect(gaggimate.fetchProfiles).toHaveBeenCalledTimes(1);
+    expect(notion.listExistingProfiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates cached device profile list after select", async () => {
+    const gaggimate = {
+      fetchProfiles: vi.fn()
+        .mockResolvedValueOnce([{ id: "device-1", label: "One", selected: false, favorite: false }])
+        .mockResolvedValueOnce([{ id: "device-1", label: "One", selected: true, favorite: false }]),
+      selectProfile: vi.fn().mockResolvedValue(undefined),
+      favoriteProfile: vi.fn(),
+    };
+    const notion = {
+      listExistingProfiles: vi.fn().mockResolvedValue({
+        byName: new Map(),
+        byId: new Map(),
+        all: [],
+      }),
+    };
+
+    const router = createDeviceRouter(gaggimate as any, notion as any);
+    const listHandler = getRouteHandler(router, "/profiles", "get");
+    const selectHandler = getRouteHandler(router, "/profiles/:id/select", "post");
+
+    await listHandler({}, createResponse());
+    await selectHandler({ params: { id: "device-1" } }, createResponse());
+    await listHandler({}, createResponse());
+
+    expect(gaggimate.selectProfile).toHaveBeenCalledWith("device-1");
+    expect(gaggimate.fetchProfiles).toHaveBeenCalledTimes(2);
+  });
 });

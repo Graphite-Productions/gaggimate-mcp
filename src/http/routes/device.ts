@@ -95,19 +95,76 @@ function mergeDeviceAndNotionProfiles(
  */
 export function createDeviceRouter(gaggimate: GaggiMateClient, notion: NotionClient): Router {
   const router = Router();
+  const DEVICE_PROFILES_CACHE_TTL_MS = 1500;
+  const NOTION_FALLBACK_CACHE_TTL_MS = 15_000;
+  let cachedDeviceProfiles: { expiresAt: number; profiles: DeviceProfileView[] } | null = null;
+  let cachedNotionProfiles: { expiresAt: number; profiles: DeviceProfileView[] } | null = null;
+  let inFlightDeviceProfiles: Promise<DeviceProfileView[]> | null = null;
+  let inFlightNotionProfiles: Promise<DeviceProfileView[]> | null = null;
+
+  const invalidateDeviceProfileCache = () => {
+    cachedDeviceProfiles = null;
+  };
+
+  const loadDeviceProfiles = async (): Promise<DeviceProfileView[]> => {
+    const now = Date.now();
+    if (cachedDeviceProfiles && cachedDeviceProfiles.expiresAt > now) {
+      return cachedDeviceProfiles.profiles;
+    }
+    if (inFlightDeviceProfiles) {
+      return inFlightDeviceProfiles;
+    }
+
+    inFlightDeviceProfiles = gaggimate.fetchProfiles()
+      .then((profiles) => {
+        const mappedProfiles = (profiles || []).map((profile: any) => toDeviceProfileView(profile));
+        cachedDeviceProfiles = {
+          expiresAt: Date.now() + DEVICE_PROFILES_CACHE_TTL_MS,
+          profiles: mappedProfiles,
+        };
+        return mappedProfiles;
+      })
+      .finally(() => {
+        inFlightDeviceProfiles = null;
+      });
+
+    return inFlightDeviceProfiles;
+  };
+
+  const loadNotionFallbackProfiles = async (): Promise<DeviceProfileView[]> => {
+    const now = Date.now();
+    if (cachedNotionProfiles && cachedNotionProfiles.expiresAt > now) {
+      return cachedNotionProfiles.profiles;
+    }
+    if (inFlightNotionProfiles) {
+      return inFlightNotionProfiles;
+    }
+
+    inFlightNotionProfiles = listNotionSelectableProfiles(notion)
+      .then((profiles) => {
+        cachedNotionProfiles = {
+          expiresAt: Date.now() + NOTION_FALLBACK_CACHE_TTL_MS,
+          profiles,
+        };
+        return profiles;
+      })
+      .finally(() => {
+        inFlightNotionProfiles = null;
+      });
+
+    return inFlightNotionProfiles;
+  };
 
   /** List all profiles on the device */
   router.get("/profiles", async (_req, res) => {
-    let notionFallbackProfiles: DeviceProfileView[] = [];
-    try {
-      notionFallbackProfiles = await listNotionSelectableProfiles(notion);
-    } catch (error) {
+    const notionFallbackPromise = loadNotionFallbackProfiles().catch((error) => {
       console.warn("Device route: failed to load Notion profile fallback:", error);
-    }
+      return [] as DeviceProfileView[];
+    });
 
     try {
-      const profiles = await gaggimate.fetchProfiles();
-      const deviceProfiles = (profiles || []).map((profile: any) => toDeviceProfileView(profile));
+      const deviceProfiles = await loadDeviceProfiles();
+      const notionFallbackProfiles = await notionFallbackPromise;
       const mergedProfiles = mergeDeviceAndNotionProfiles(deviceProfiles, notionFallbackProfiles);
 
       res.json({
@@ -115,6 +172,7 @@ export function createDeviceRouter(gaggimate: GaggiMateClient, notion: NotionCli
         source: notionFallbackProfiles.length > 0 ? "device+notion" : "device",
       });
     } catch (error) {
+      const notionFallbackProfiles = await notionFallbackPromise;
       if (notionFallbackProfiles.length > 0) {
         res.json({
           profiles: notionFallbackProfiles,
@@ -141,6 +199,7 @@ export function createDeviceRouter(gaggimate: GaggiMateClient, notion: NotionCli
     }
     try {
       await gaggimate.selectProfile(id);
+      invalidateDeviceProfileCache();
       res.json({ ok: true, selected: id });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -161,6 +220,7 @@ export function createDeviceRouter(gaggimate: GaggiMateClient, notion: NotionCli
     const favorite = req.body?.favorite !== false;
     try {
       await gaggimate.favoriteProfile(id, favorite);
+      invalidateDeviceProfileCache();
       res.json({ ok: true, favorite });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -180,6 +240,7 @@ export function createDeviceRouter(gaggimate: GaggiMateClient, notion: NotionCli
     }
     try {
       await gaggimate.favoriteProfile(id, false);
+      invalidateDeviceProfileCache();
       res.json({ ok: true, favorite: false });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
