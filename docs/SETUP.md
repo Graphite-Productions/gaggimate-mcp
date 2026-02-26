@@ -366,7 +366,7 @@ Prerequisite: enable at least one of:
 
 ## Step 7: Set Up Webhooks (Optional)
 
-For real-time profile push (< 1 second instead of waiting for the next reconcile interval), set up Notion webhooks via Tailscale Funnel.
+For low-latency profile push (usually within seconds instead of waiting for the next reconcile interval), set up Notion webhooks via Tailscale Funnel.
 
 ### Enable Tailscale Funnel
 
@@ -392,7 +392,7 @@ This gives you a public URL like `https://your-machine.tail12345.ts.net`.
    - If unset, webhook events are accepted unsigned (safest only on trusted/private networks).
 6. Restart the bridge service
 
-**Verify:** Change a profile's Push Status to "Queued" — it should push within ~1 second.
+**Verify:** Change a profile's Push Status to "Queued" — it should push within seconds (or by the next reconcile cycle if webhook delivery is delayed).
 
 ---
 
@@ -444,7 +444,7 @@ ghcr.io/graphite-productions/gaggimate-bridge:2026-02-25
 | Old brews missing chart image or Shot JSON | Image was uploaded too early (blank) or shot was captured while initializing | The hourly repair scan will detect and re-sync these automatically; force sooner by restarting the service (repair runs on startup) |
 | Profile reconciler logs "3 saved/re-pushed" every cycle | Persistent field mismatch between Notion JSON and device profile | Check logs for `Profile reconciler: mismatch at ...` to identify the differing field; `targets: []` (empty array) is now automatically stripped and should not recur |
 | Control panel shows "Device offline" | Bridge can't reach GaggiMate (same as `reachable: false` in /health) | Fix GAGGIMATE_HOST, network, or Docker routing; control panel uses the bridge to talk to the device |
-| Can't change profiles on the GaggiMate — selection keeps reverting | Bridge overwrites device selection with Notion's Selected checkbox every 30s | Set `PROFILE_SYNC_SELECTED_TO_DEVICE=false` (default) so the device is the source of truth. Use the control panel or device UI to switch profiles. |
+| Can't change profiles on the GaggiMate — selection keeps reverting | Bridge overwrites device selection with Notion's Selected checkbox on each reconcile cycle | Set `PROFILE_SYNC_SELECTED_TO_DEVICE=false` (default) so the device is the source of truth. Use the control panel or device UI to switch profiles. |
 | Favorite changes in Notion do not apply to device | Favorite sync is opt-in | Set `PROFILE_SYNC_FAVORITE_TO_DEVICE=true` and restart |
 | Device-created profiles never appear in Notion | Device-profile auto-import is disabled by default to reduce WS load | Set `PROFILE_IMPORT_UNMATCHED_DEVICE_PROFILES=true` and/or `IMPORT_MISSING_PROFILES_FROM_SHOTS=true` |
 | Shots sync but missing profiles are not auto-imported during shot polling | Shot-priority mode disables inline profile import by default | Set `IMPORT_MISSING_PROFILES_FROM_SHOTS=true` if you want shot polling to fetch/import profiles from device |

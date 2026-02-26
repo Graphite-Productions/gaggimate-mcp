@@ -1,4 +1,4 @@
-> **Historical planning document.** This PRD was written before implementation and reflects the original design intent. The codebase diverges in several areas: the service is a plain HTTP bridge (no MCP protocol), the polling fallback is 30s (not 3s), the architecture diagram labels are outdated, and the dev phase checklists were never updated. For current operational details, see `SETUP.md` and `NOTION-WORKSPACE-SETUP.md`.
+> **Historical planning document.** This PRD was written before implementation and reflects the original design intent. The codebase diverges in several areas: the service is a plain HTTP bridge (no MCP protocol), shot ingest runs on a 30s poll loop, profile push fallback is handled by the profile reconciler interval (default 60s), several architecture labels are outdated, and the dev phase checklists were never updated. For current operational details, see `SETUP.md` and `NOTION-WORKSPACE-SETUP.md`.
 
 ## Navigation
 
@@ -248,13 +248,13 @@ graph TD
 ### Key Design Principles
 
 - **GaggiMate firmware is a black box** — we only read from its API, never modify its code
-- **All writes to the machine are limited to the "AI Profile" slot** — manual profiles are never overwritten
+- **Bridge writes are scoped to managed Notion profiles** — `Queued`/`Pushed`/`Archived` records are reconciled to device state
 - **Notion is the system of record** — shot data, beans, grind settings all live here permanently
 - **TrueNAS SCALE is the bridge** — always-on, LAN-local Docker host running the MCP server, Tailscale, and optionally Home Assistant. No additional hardware needed.
-- **Notion is the control plane** — Notion AI recommends profiles, writes the JSON to the Profiles database, and sets status to "Queued". A Notion webhook fires instantly, the MCP server receives it, and pushes the profile to the GaggiMate. Sub-second latency, no polling.
+- **Notion is the control plane** — Notion AI recommends profiles, writes JSON to the Profiles database, and sets status to "Queued". Webhooks provide low-latency push, and the reconciler interval provides fallback when webhooks are unavailable.
 - **Tailscale for remote access** — already installed on TrueNAS. Provides secure phone-to-NAS connectivity without public URLs or open ports. Notion webhooks require a public endpoint, which Tailscale Funnel provides.
 - **Phone-based UX for data entry** — the 2.1" touchscreen stays clean and focused on brewing
-- **Graceful degradation** — if MCP server, Notion, or network are down, the machine works exactly as normal. Polling fallback (every 3s) if webhooks are unavailable.
+- **Graceful degradation** — if MCP server, Notion, or network are down, the machine works exactly as normal. Profile push falls back to the reconcile interval (default 60s) when webhooks are unavailable.
 
 ### Hosting: TrueNAS SCALE (Confirmed) ✅
 
@@ -267,24 +267,24 @@ graph TD
 
 | Component | Runs On | Notes |
 | --- | --- | --- |
-| **MCP Server** *(core pipeline)* | Docker on TrueNAS SCALE | Reads GaggiMate API on LAN, writes to Notion. Listens for Notion webhooks to push profiles to the machine. Polling fallback if webhooks unavailable. |
-| **Notion Webhook Listener** | Part of MCP Server (port 3000) | Receives real-time webhook from Notion when Profiles database changes (status → "Queued"). Parses Profile JSON, pushes to GaggiMate via local API. Sub-second latency. |
+| **MCP Server** *(core pipeline)* | Docker on TrueNAS SCALE | Reads GaggiMate API on LAN, writes to Notion. Listens for Notion webhooks to push profiles, and runs periodic profile reconcile fallback (default 60s). |
+| **Notion Webhook Listener** | Part of MCP Server (port 3000) | Receives webhook events from Notion when Profiles database changes (status → "Queued"). Parses Profile JSON and queues push to GaggiMate via local API. |
 | **Tailscale** *(already installed)* | TrueNAS SCALE (native or Docker) | Secure mesh VPN for phone → NAS access. **Tailscale Funnel** exposes the webhook endpoint publicly so Notion can reach it — no domain or Cloudflare account needed. |
 | **Home Assistant** *(optional)* | Docker on TrueNAS SCALE | One-tap flush shortcut, HomeKit bridge, machine status dashboard. Can also run as a TrueNAS app. |
 
-### Profile Push Architecture: Notion Webhooks ✅
+### Profile Push Architecture: Webhook + Reconciler ✅
 
 <aside>
 ⚡
 
-**How AI profile recommendations get from Notion to the GaggiMate in under 1 second:**
+**How AI profile recommendations get from Notion to the GaggiMate quickly and reliably:**
 
 1. Notion AI (on your phone) analyzes shot history, recommends a profile, writes the Profile JSON to the Profiles database, and sets Push Status to **"Queued"**
 2. Notion fires a **webhook** instantly to the MCP server's public endpoint (exposed via Tailscale Funnel)
 3. MCP server receives the webhook, reads the Profile JSON, validates it, and POSTs it to the GaggiMate at `192.168.1.100` via the `update_ai_profile` API
 4. MCP server updates the Notion profile entry: Push Status → **"Pushed"**, adds timestamp
 
-**Fallback:** If webhooks are down, the MCP server polls the Profiles database every 3 seconds for `Push Status = Queued`. Max latency: 3–5 seconds.
+**Fallback:** If webhooks are down, the profile reconciler still processes `Push Status = Queued` on each reconcile cycle (default 60 seconds).
 
 </aside>
 
@@ -387,7 +387,7 @@ graph TD
 | Active on Machine | Checkbox | Is this currently loaded on the GaggiMate? Helps track what's available |
 | Profile Image | File | Screenshot or export of the pressure curve from GaggiMate — visual reference. TBD: check if MCP server can pull this automatically |
 | Profile JSON | Text | Raw GaggiMate profile JSON — the exact format the machine reads. This is what gets pushed to the GaggiMate when a profile is queued. Confirmed format: `{"label", "type", "temperature", "phases": [...]}` |
-| Push Status | Select | **The webhook trigger.** Options: `Draft` (not ready), `Queued` (push to machine now), `Pushed` (confirmed on machine), `Failed` (push error). When Notion AI sets this to "Queued", the MCP server receives a webhook and pushes the Profile JSON to the GaggiMate within ~1 second. |
+| Push Status | Select | **The push trigger.** Options: `Draft` (not ready), `Queued` (push to machine now), `Pushed` (confirmed on machine), `Failed` (push error). Webhooks provide low-latency push; reconciler interval provides fallback. |
 | Last Pushed | Date (with time) | Timestamp of the last successful push to the GaggiMate. Set automatically by the MCP server after a successful `update_ai_profile` call. |
 | Brews | Relation → Brews | Two-way. Every shot that used this profile |
 | Notes | Text | Tweaks, origin story, community credit, etc. |
@@ -425,7 +425,7 @@ graph LR
 ### Flow 1: Post-Shot Logging (Daily Use)
 
 1. Pull a shot on the Silvia as normal (touchscreen brew flow untouched)
-2. MCP server detects new shot via the web API (polling or webhook)
+2. MCP server detects new shot via the web API polling loop (`SYNC_INTERVAL_MS`, default 30s)
 3. Shot data (pressure curve, temp, time, weight) auto-logged to Notion Shot Log
 4. Open phone → quick-tag form (or Notion mobile) → add bean, grind setting, rating
 5. Done. Full shot record in Notion, machine firmware untouched.
@@ -436,11 +436,12 @@ graph LR
 2. Open **Notion on your phone** → ask Notion AI (with Hoffmann persona): *"I have this Ethiopian Yirgacheffe, natural process, day 12 off roast. Last 3 shots were sour. What should I adjust?"*
 3. Notion AI reads your Brews, Beans, and Profiles databases → analyzes shot history for similar beans → recommends grind, dose, temperature, and a pressure profile
 4. Notion AI writes the recommended **Profile JSON** to the Profiles database and sets **Push Status → "Queued"**
-5. **Notion webhook fires instantly** → MCP server receives it → validates the Profile JSON → pushes it to the GaggiMate at `192.168.1.100` via `update_ai_profile` → sets Push Status → "Pushed" ✅
-6. Profile appears on the GaggiMate touchscreen as "AI Profile" — select it and pull the next shot
-7. Rate the shot, repeat from step 2 until dialed in
+5. **Webhook path:** Notion webhook fires → MCP server receives it → validates Profile JSON → pushes to GaggiMate at `192.168.1.100` via `update_ai_profile` → sets Push Status → "Pushed" ✅
+6. **Fallback path:** if webhook is unavailable, the profile reconciler picks up `Queued` on the next reconcile cycle and pushes it
+7. Profile appears on the GaggiMate touchscreen — select it and pull the next shot
+8. Rate the shot, repeat from step 2 until dialed in
 
-**Latency:** Sub-second from "Queued" to profile on the machine. The bottleneck is you pulling the shot, not the system.
+**Latency:** Usually seconds with healthy webhooks; fallback is bounded by reconcile interval (default 60s).
 
 ### Flow 3: Flush / Backflush (Quick Access)
 
@@ -497,7 +498,7 @@ graph LR
 
 ### Phase 4 — Polish & Automation *(Week 6-8)*
 
-- [ ]  Automate shot detection (polling or webhook from MCP server)
+- [ ]  Finalize shot detection polling cadence and alerting from the MCP server
 - [ ]  Refine quick-tag UX — make post-shot logging feel like 10 seconds, not 60
 - [ ]  Build community profile import workflow (GaggiMate supports JSON profile export/import)
 - [ ]  Set up monitoring: alert if MCP server loses connection to GaggiMate
@@ -623,14 +624,14 @@ tailscale funnel 3000
 sudo docker exec -it <tailscale-container-name> tailscale funnel 3000
 ```
 
-1. Tailscale will output your public URL: `https://your-machine.tailXXXXX.ts.net``
+1. Tailscale will output your public URL: `https://your-machine.tailXXXXX.ts.net`
 2. Note this URL — it's your webhook endpoint
 
 **Set up the Notion Webhook:**
 
 1. In your Notion integration settings ([notion.so/my-integrations](http://notion.so/my-integrations)), find your GaggiMate MCP integration
 2. Go to the **Webhooks** section and create a new webhook
-3. Set the **endpoint URL** to `https://your-machine.tailXXXXX.ts.net/webhook/notion (your Funnel URL +` /webhook/notion` path)
+3. Set the **endpoint URL** to `https://your-machine.tailXXXXX.ts.net/webhook/notion` (your Funnel URL + `/webhook/notion`)
 4. Subscribe to **page property changes** on the Profiles database
 5. Notion will send a verification request — the MCP server must respond correctly to complete setup
 
@@ -642,7 +643,7 @@ sudo docker exec -it <tailscale-container-name> tailscale funnel 3000
 4. MCP server POSTs the profile to GaggiMate at `192.168.1.100` via `update_ai_profile`
 5. MCP server updates the Notion entry: Push Status → "Pushed", Last Pushed → now
 
-> ✅ **Verification:** Run `tailscale funnel status` to confirm Funnel is active (or `sudo docker exec -it <tailscale-container-name> tailscale funnel status`). Then from your phone on cellular (not Wi-Fi), visit `https://your-machine.tailXXXXX.ts.net/health`` For the webhook, change a profile's Push Status to "Queued" in Notion and confirm it appears on the GaggiMate within ~1 second.
+> ✅ **Verification:** Run `tailscale funnel status` to confirm Funnel is active (or `sudo docker exec -it <tailscale-container-name> tailscale funnel status`). Then from your phone on cellular (not Wi-Fi), visit `https://your-machine.tailXXXXX.ts.net/health`. For webhooks, change a profile's Push Status to "Queued" in Notion and confirm it appears on the GaggiMate within seconds.
 > 
 
 ---
@@ -685,7 +686,8 @@ services:
       - NOTION_BREWS_DB_ID=XXXX
       - NOTION_PROFILES_DB_ID=XXXX
       - WEBHOOK_SECRET=XXXX              # ← from Notion webhook setup
-      - POLLING_FALLBACK=true            # Poll every 3s if webhook is down
+      - PROFILE_RECONCILE_ENABLED=true   # Fallback profile processing loop
+      - PROFILE_RECONCILE_INTERVAL_MS=60000
     volumes:
       - /mnt/tank/apps/gaggimate-mcp/data:/app/data  # ← adjust pool name
     # Note: uses IP instead of gaggimate.local because
@@ -701,7 +703,7 @@ services:
 - **No `cloudflared` container needed** — Tailscale Funnel runs on the TrueNAS host and handles public HTTPS exposure
 - **GaggiMate IP is confirmed** at `192.168.1.100` with DHCP reservation
 - **Webhook listener** on port 3000 receives Notion webhook POSTs at `/webhook/notion`
-- **Polling fallback** is enabled — if webhooks go down, the server polls Notion every 3 seconds for `Push Status = Queued`
+- **Reconciler fallback** is enabled — if webhooks go down, queued profiles are processed on each reconcile interval (default 60s)
 - We'll refine this once you have the Notion API token and database IDs
 
 ---
