@@ -290,4 +290,66 @@ describe("NotionClient profile helpers", () => {
     // One exact-match query + one fallback scan total, despite two callers.
     expect(mockClient.databases.query).toHaveBeenCalledTimes(2);
   });
+
+  it("caches brew lookups by shot id to avoid repeated Notion queries", async () => {
+    const { notion, mockClient } = createNotionClient();
+    mockClient.databases.query.mockResolvedValue({
+      results: [{ id: "brew-page-42" }],
+      has_more: false,
+      next_cursor: null,
+    });
+
+    const first = await notion.findBrewByShotId("42");
+    const second = await notion.findBrewByShotId("42");
+
+    expect(first).toBe("brew-page-42");
+    expect(second).toBe("brew-page-42");
+    expect(mockClient.databases.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates concurrent brew lookups for the same shot id", async () => {
+    const { notion, mockClient } = createNotionClient();
+    const deferred = createDeferred<any>();
+    mockClient.databases.query.mockImplementation(() => deferred.promise);
+
+    const first = notion.findBrewByShotId("777");
+    const second = notion.findBrewByShotId("777");
+
+    expect(mockClient.databases.query).toHaveBeenCalledTimes(1);
+
+    deferred.resolve({
+      results: [{ id: "brew-page-777" }],
+      has_more: false,
+      next_cursor: null,
+    });
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult).toBe("brew-page-777");
+    expect(secondResult).toBe("brew-page-777");
+    expect(mockClient.databases.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("seeds brew lookup cache when creating brews", async () => {
+    const { notion, mockClient } = createNotionClient();
+    mockClient.pages.create.mockResolvedValue({ id: "brew-page-99" });
+
+    await notion.createBrew({
+      activityId: "99",
+      title: "#099 - Feb 14 AM",
+      date: "2026-02-14T08:00:00.000Z",
+      brewTime: 30,
+      yieldOut: 36,
+      brewTemp: 93,
+      peakPressure: 9,
+      preinfusionTime: 5,
+      totalVolume: 40,
+      profileName: "",
+      source: "Auto",
+    });
+
+    const cached = await notion.findBrewByShotId("99");
+    expect(cached).toBe("brew-page-99");
+    // createBrew used pages.create only; read lookup should be cache hit.
+    expect(mockClient.databases.query).not.toHaveBeenCalled();
+  });
 });

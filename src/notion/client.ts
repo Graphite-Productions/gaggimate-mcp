@@ -33,11 +33,17 @@ export class NotionClient {
   private profilePageIdCache = new Map<string, { pageId: string | null; expiresAt: number }>();
   // Deduplicate concurrent lookups for the same normalized profile name.
   private profilePageIdLookupInFlight = new Map<string, Promise<string | null>>();
+  // Cache brew lookup by shot ID (positive + negative) to reduce repeated Notion queries.
+  private brewPageIdCache = new Map<string, { pageId: string | null; expiresAt: number }>();
+  // Deduplicate concurrent findBrewByShotId lookups for the same shot ID.
+  private brewPageIdLookupInFlight = new Map<string, Promise<string | null>>();
   // Throttle noisy missing-profile warnings when Notion profiles do not include machine labels.
   private profileMissingWarnUntil = new Map<string, number>();
   private readonly PROFILE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   private readonly PROFILE_NEGATIVE_CACHE_TTL = 60 * 1000; // 1 minute
   private readonly PROFILE_MISSING_WARN_TTL = 5 * 60 * 1000; // 5 minutes
+  private readonly BREW_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+  private readonly BREW_NEGATIVE_CACHE_TTL = 30 * 1000; // 30 seconds
 
   constructor(notionConfig: NotionConfig) {
     this.config = notionConfig;
@@ -71,6 +77,7 @@ export class NotionClient {
       parent: { database_id: this.config.brewsDbId },
       properties,
     });
+    this.cacheBrewPageIdLookup(brew.activityId, response.id);
     return response.id;
   }
 
@@ -80,7 +87,16 @@ export class NotionClient {
     if (shotJson !== undefined) {
       properties["Shot JSON"] = { rich_text: this.toRichText(shotJson) };
     }
-    await this.updateBrew(pageId, properties);
+    try {
+      await this.updateBrew(pageId, properties);
+      this.cacheBrewPageIdLookup(brew.activityId, pageId);
+    } catch (error) {
+      // If cached lookup points at a deleted page, clear it so the next read can discover/create the replacement.
+      if (this.isNotionObjectNotFoundError(error)) {
+        this.clearBrewPageIdLookup(brew.activityId);
+      }
+      throw error;
+    }
   }
 
   /** Read the Shot JSON property from a brew page */
@@ -92,15 +108,39 @@ export class NotionClient {
 
   /** Find an existing brew by GaggiMate shot ID (dedup check) */
   async findBrewByShotId(shotId: string): Promise<string | null> {
-    const response = await this.client.databases.query({
-      database_id: this.config.brewsDbId,
-      filter: {
-        property: "Activity ID",
-        rich_text: { equals: shotId },
-      },
-      page_size: 1,
+    const normalizedShotId = shotId.trim();
+    if (!normalizedShotId) {
+      return null;
+    }
+
+    const cached = this.brewPageIdCache.get(normalizedShotId);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.pageId;
+    }
+
+    const inFlightLookup = this.brewPageIdLookupInFlight.get(normalizedShotId);
+    if (inFlightLookup) {
+      return inFlightLookup;
+    }
+
+    const lookupPromise = (async (): Promise<string | null> => {
+      const response = await this.client.databases.query({
+        database_id: this.config.brewsDbId,
+        filter: {
+          property: "Activity ID",
+          rich_text: { equals: normalizedShotId },
+        },
+        page_size: 1,
+      });
+      const pageId = response.results.length > 0 ? response.results[0].id : null;
+      this.cacheBrewPageIdLookup(normalizedShotId, pageId);
+      return pageId;
+    })().finally(() => {
+      this.brewPageIdLookupInFlight.delete(normalizedShotId);
     });
-    return response.results.length > 0 ? response.results[0].id : null;
+
+    this.brewPageIdLookupInFlight.set(normalizedShotId, lookupPromise);
+    return lookupPromise;
   }
 
   /** List brews with optional filters */
@@ -758,5 +798,44 @@ export class NotionClient {
   private sanitizeFileName(value: string): string {
     const normalized = value.trim().replace(/\s+/g, "-").replace(/[^a-zA-Z0-9\-_]/g, "").toLowerCase();
     return normalized || "profile";
+  }
+
+  private cacheBrewPageIdLookup(shotId: string | null | undefined, pageId: string | null): void {
+    const normalizedShotId = typeof shotId === "string" ? shotId.trim() : "";
+    if (!normalizedShotId) {
+      return;
+    }
+    const expiresAt = Date.now() + (pageId ? this.BREW_CACHE_TTL : this.BREW_NEGATIVE_CACHE_TTL);
+    this.brewPageIdCache.set(normalizedShotId, { pageId, expiresAt });
+  }
+
+  private clearBrewPageIdLookup(shotId: string | null | undefined): void {
+    const normalizedShotId = typeof shotId === "string" ? shotId.trim() : "";
+    if (!normalizedShotId) {
+      return;
+    }
+    this.brewPageIdCache.delete(normalizedShotId);
+    this.brewPageIdLookupInFlight.delete(normalizedShotId);
+  }
+
+  private isNotionObjectNotFoundError(error: unknown): boolean {
+    const status = (error as any)?.status;
+    if (status === 404) {
+      return true;
+    }
+
+    const code = (error as any)?.code;
+    if (typeof code === "string" && code.toLowerCase() === "object_not_found") {
+      return true;
+    }
+
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      if (message.includes("object_not_found") || message.includes("could not find page") || message.includes("page not found")) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }
