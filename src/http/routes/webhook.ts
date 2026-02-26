@@ -105,6 +105,35 @@ async function processWebhookEvent(
 export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionClient): Router {
   const router = Router();
   let warnedMissingSecret = false;
+  const inFlightPageProcessing = new Set<string>();
+  const rerunRequestedForPage = new Set<string>();
+
+  const enqueuePageProcessing = (pageId: string, updatedProps: string[]) => {
+    if (inFlightPageProcessing.has(pageId)) {
+      rerunRequestedForPage.add(pageId);
+      return;
+    }
+
+    const run = async () => {
+      inFlightPageProcessing.add(pageId);
+      try {
+        do {
+          rerunRequestedForPage.delete(pageId);
+          try {
+            await processWebhookEvent(gaggimate, notion, pageId, updatedProps);
+          } catch (error) {
+            console.error(`Webhook background processing failed for page ${pageId}:`, error);
+          }
+        } while (rerunRequestedForPage.has(pageId));
+      } finally {
+        inFlightPageProcessing.delete(pageId);
+      }
+    };
+
+    run().catch((error) => {
+      console.error(`Webhook queue failed for page ${pageId}:`, error);
+    });
+  };
 
   router.post("/notion", async (req, res) => {
     try {
@@ -180,10 +209,9 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
       // Respond immediately so Notion doesn't timeout waiting for device/API calls.
       res.json({ ok: true, action: "accepted" });
 
-      // Process the webhook event in the background.
-      processWebhookEvent(gaggimate, notion, pageId, updatedProps).catch((error) => {
-        console.error(`Webhook background processing failed for page ${pageId}:`, error);
-      });
+      // Process in the background with per-page coalescing to avoid event storms
+      // generating concurrent device writes.
+      enqueuePageProcessing(pageId, updatedProps);
     } catch (error) {
       console.error("Webhook processing error:", error);
       res.status(500).json({
