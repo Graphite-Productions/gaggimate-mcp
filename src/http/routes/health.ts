@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { GaggiMateClient } from "../../gaggimate/client.js";
 import type { NotionClient } from "../../notion/client.js";
 import type { SyncState } from "../../sync/state.js";
+import { config } from "../../config.js";
 
 const startTime = Date.now();
 const buildDate = process.env.BUILD_DATE ?? null;
@@ -35,6 +36,9 @@ export function createHealthRouter(
         notion: {
           connected: notionConnected,
           ...(imageUploadDisabled ? { imageUploadDisabled } : {}),
+        },
+        webhook: {
+          signatureVerificationEnabled: config.webhook.secret.length > 0,
         },
         lastShotSync: syncState?.lastSyncTime ?? null,
         lastShotId: syncState?.lastSyncedShotId ?? null,

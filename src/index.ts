@@ -66,6 +66,7 @@ async function main() {
   console.log(`  Version: ${version}`);
   console.log(`  GaggiMate: ${config.gaggimate.protocol}://${config.gaggimate.host}`);
   console.log(`  HTTP port: ${config.http.port}`);
+  console.log(`  Webhook signature verification: ${config.webhook.secret ? "enabled" : "disabled"}`);
   console.log(`  Shot sync interval: ${config.sync.intervalMs}ms`);
   console.log(`  Import missing profiles during shot sync: ${config.sync.importMissingProfilesFromShots}`);
   console.log(`  Profile reconciler: ${config.sync.profileReconcileEnabled}`);

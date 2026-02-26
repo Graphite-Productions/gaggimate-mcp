@@ -28,6 +28,25 @@ function parseGaggimateProtocol(value: string | undefined): "ws" | "wss" {
   return normalized === "wss" ? "wss" : "ws";
 }
 
+function parseOptionalSecret(value: string | undefined): string {
+  if (value === undefined) {
+    return "";
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const wrappedInSingleQuotes = trimmed.startsWith("'") && trimmed.endsWith("'");
+  const wrappedInDoubleQuotes = trimmed.startsWith("\"") && trimmed.endsWith("\"");
+  if (trimmed.length >= 2 && (wrappedInSingleQuotes || wrappedInDoubleQuotes)) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+}
+
 export const config = {
   gaggimate: {
     host: process.env.GAGGIMATE_HOST || "localhost",
@@ -41,7 +60,7 @@ export const config = {
     profilesDbId: process.env.NOTION_PROFILES_DB_ID || "",
   },
   webhook: {
-    secret: process.env.WEBHOOK_SECRET || "",
+    secret: parseOptionalSecret(process.env.WEBHOOK_SECRET),
   },
   sync: {
     intervalMs: parseEnvNumber(process.env.SYNC_INTERVAL_MS, 30000),

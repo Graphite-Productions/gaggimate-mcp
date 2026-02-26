@@ -54,4 +54,19 @@ describe("config", () => {
       vi.resetModules();
     }
   });
+
+  it("normalizes WEBHOOK_SECRET by trimming whitespace and surrounding quotes", async () => {
+    const previous = { ...process.env };
+    try {
+      process.env.WEBHOOK_SECRET = "  \"secret-token\"  ";
+
+      vi.resetModules();
+      const { config } = await import("../src/config.js");
+
+      expect(config.webhook.secret).toBe("secret-token");
+    } finally {
+      process.env = previous;
+      vi.resetModules();
+    }
+  });
 });
