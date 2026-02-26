@@ -122,7 +122,7 @@ File: `src/config.ts`
   - `profileImportIntervalMs`
 - Add:
   - `profileReconcileEnabled` (default `true`)
-  - `profileReconcileIntervalMs` (default `30000`)
+  - `profileReconcileIntervalMs` (default `60000`)
 
 File: `src/index.ts`
 
@@ -140,7 +140,7 @@ File: `.env.example`
 
 - Replace old profile polling vars with:
   - `PROFILE_RECONCILE_ENABLED=true`
-  - `PROFILE_RECONCILE_INTERVAL_MS=30000`
+  - `PROFILE_RECONCILE_INTERVAL_MS=60000`
   - `PROFILE_RECONCILE_DELETE_ENABLED=true`
   - `PROFILE_RECONCILE_DELETE_LIMIT_PER_RUN=3`
   - `PROFILE_RECONCILE_SAVE_LIMIT_PER_RUN=5`
