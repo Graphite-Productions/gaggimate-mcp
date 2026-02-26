@@ -249,6 +249,58 @@ describe("ShotPoller", () => {
     }
   });
 
+  it("persists sync state once per poll cycle when multiple shots advance contiguously", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "shot-poller-test-"));
+
+    const gaggimate = {
+      fetchShotHistory: vi.fn().mockResolvedValue([
+        { id: "3", incomplete: false },
+        { id: "2", incomplete: false },
+        { id: "1", incomplete: false },
+      ]),
+      fetchShot: vi.fn().mockImplementation((shotId: string) => Promise.resolve({
+        ...createMockShotData(),
+        id: shotId,
+        profileId: "profile-1",
+        profileName: "Device Profile",
+      })),
+      fetchProfiles: vi.fn(),
+      uploadBrewChart: vi.fn(),
+    };
+
+    const notion = {
+      findBrewByShotId: vi.fn().mockResolvedValue(null),
+      hasProfileByName: vi.fn().mockResolvedValue(true),
+      normalizeProfileName: vi.fn().mockImplementation((name: string) => name.trim().toLowerCase()),
+      createDraftProfile: vi.fn(),
+      uploadProfileImage: vi.fn(),
+      createBrew: vi.fn().mockImplementation((brew: any) => Promise.resolve(`brew-${brew.activityId}`)),
+      updateBrewFromData: vi.fn().mockResolvedValue(undefined),
+      brewHasProfileImage: vi.fn().mockResolvedValue(true),
+      imageUploadDisabled: "disabled",
+      uploadBrewChart: vi.fn().mockResolvedValue(false),
+    };
+
+    try {
+      const poller = new ShotPoller(gaggimate as any, notion as any, {
+        intervalMs: 1000,
+        dataDir,
+        recentShotLookbackCount: 5,
+        brewTitleTimeZone: "America/Los_Angeles",
+        repairIntervalMs: -1,
+      });
+
+      const saveSpy = vi.spyOn((poller as any).state, "save");
+      await (poller as any).poll();
+
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      expect((poller as any).state.lastSyncedShotId).toBe("3");
+      expect((poller as any).state.totalShotsSynced).toBe(3);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("repairs stale brews with empty JSON and missing chart image by re-syncing both", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "shot-poller-test-"));
     const callOrder: string[] = [];

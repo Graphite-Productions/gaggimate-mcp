@@ -316,6 +316,16 @@ export class ShotPoller {
       let contiguousLastSyncedId = lastId;
       const syncedButBlockedByGap = new Set<number>();
       const skippedButBlockedByGap = new Set<number>();
+      let pendingSyncedAdvances = 0;
+      let stateDirty = false;
+      const markStateAdvance = (shotId: string, incrementSynced: boolean) => {
+        state.lastSyncedShotId = shotId;
+        state.lastSyncTime = new Date().toISOString();
+        if (incrementSynced) {
+          pendingSyncedAdvances += 1;
+        }
+        stateDirty = true;
+      };
       const tryAdvanceContiguousCursor = () => {
         while (true) {
           const nextId = contiguousLastSyncedId + 1;
@@ -323,7 +333,7 @@ export class ShotPoller {
             syncedButBlockedByGap.delete(nextId);
             contiguousLastSyncedId = nextId;
             const advancedId = String(nextId);
-            state.recordSync(advancedId);
+            markStateAdvance(advancedId, true);
             syncedIds.push(advancedId);
             continue;
           }
@@ -331,9 +341,7 @@ export class ShotPoller {
           if (skippedButBlockedByGap.has(nextId)) {
             skippedButBlockedByGap.delete(nextId);
             contiguousLastSyncedId = nextId;
-            state.lastSyncedShotId = String(nextId);
-            state.lastSyncTime = new Date().toISOString();
-            state.save();
+            markStateAdvance(String(nextId), false);
             continue;
           }
 
@@ -503,6 +511,11 @@ export class ShotPoller {
           console.error(`Shot ${shotListItem.id}: sync failed:`, error);
           failedCount += 1;
         }
+      }
+
+      if (stateDirty) {
+        state.totalShotsSynced += pendingSyncedAdvances;
+        state.save();
       }
 
       syncedCount = syncedIds.length;
