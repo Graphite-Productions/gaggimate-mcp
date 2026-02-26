@@ -504,4 +504,64 @@ describe("webhook route status handling", () => {
       (config as any).webhook.secret = originalSecret;
     }
   });
+
+  it("dedupes duplicate webhook events by event id (in-flight and completed)", async () => {
+    const originalSyncFavorite = config.sync.profileSyncFavoriteToDevice;
+    (config as any).sync.profileSyncFavoriteToDevice = true;
+    try {
+      const gaggimate = createMockGaggimate();
+      const notion = createMockNotion();
+      let releaseFirstRun: (() => void) | null = null;
+
+      notion.getProfilePageData
+        .mockImplementationOnce(() => new Promise((resolve) => {
+          releaseFirstRun = () => resolve({
+            profileJson: JSON.stringify({ id: "device-dedupe", label: "Profile" }),
+            pushStatus: "Pushed",
+            favorite: true,
+            selected: false,
+          });
+        }))
+        .mockResolvedValue({
+          profileJson: JSON.stringify({ id: "device-dedupe", label: "Profile" }),
+          pushStatus: "Pushed",
+          favorite: true,
+          selected: false,
+        });
+      notion.extractProfileIdFromJson.mockReturnValue("device-dedupe");
+
+      const router = createWebhookRouter(gaggimate as any, notion as any);
+      const handler = getNotionWebhookHandler(router);
+
+      const duplicateBody = {
+        id: "event-dedupe-1",
+        type: "page.properties_updated",
+        entity: { type: "page", id: "page-dedupe" },
+      };
+
+      const res1 = createResponse();
+      await handler(createSignedRequest(duplicateBody), res1);
+      expect(res1.jsonBody).toEqual({ ok: true, action: "accepted" });
+
+      const res2 = createResponse();
+      await handler(createSignedRequest(duplicateBody), res2);
+      expect(res2.jsonBody).toEqual({ ok: true, action: "accepted", deduped: true });
+
+      expect(notion.getProfilePageData).toHaveBeenCalledTimes(1);
+
+      releaseFirstRun?.();
+      await vi.waitFor(() => {
+        expect(gaggimate.favoriteProfile).toHaveBeenCalledWith("device-dedupe", true);
+      });
+
+      const res3 = createResponse();
+      await handler(createSignedRequest(duplicateBody), res3);
+      expect(res3.jsonBody).toEqual({ ok: true, action: "accepted", deduped: true });
+
+      expect(notion.getProfilePageData).toHaveBeenCalledTimes(1);
+      expect(gaggimate.favoriteProfile).toHaveBeenCalledTimes(1);
+    } finally {
+      (config as any).sync.profileSyncFavoriteToDevice = originalSyncFavorite;
+    }
+  });
 });

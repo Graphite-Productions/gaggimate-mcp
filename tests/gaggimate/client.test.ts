@@ -223,4 +223,78 @@ describe("GaggiMateClient WebSocket request flow", () => {
       vi.useRealTimers();
     }
   });
+
+  it("dedupes concurrent selectProfile commands for the same profile id", async () => {
+    const client = createClient() as any;
+    const responseGate = createDeferred();
+
+    const fakeWs = {
+      send: vi.fn((payload: string, cb?: (error?: Error) => void) => {
+        cb?.();
+        const parsed = JSON.parse(payload);
+        responseGate.promise.then(() => {
+          client.handleSharedMessage(JSON.stringify({
+            tp: "res:profiles:select",
+            rid: parsed.rid,
+          }));
+        });
+      }),
+    };
+    client.getOrCreateWs = vi.fn().mockResolvedValue(fakeWs);
+
+    const first = client.selectProfile("profile-123");
+    const second = client.selectProfile("profile-123");
+
+    await vi.waitFor(() => {
+      expect(fakeWs.send).toHaveBeenCalledTimes(1);
+    });
+
+    responseGate.resolve();
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+    expect(fakeWs.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("dedupes rapid repeated selectProfile calls after success", async () => {
+    const client = createClient() as any;
+    const fakeWs = {
+      send: vi.fn((payload: string, cb?: (error?: Error) => void) => {
+        cb?.();
+        const parsed = JSON.parse(payload);
+        client.handleSharedMessage(JSON.stringify({
+          tp: "res:profiles:select",
+          rid: parsed.rid,
+        }));
+      }),
+    };
+    client.getOrCreateWs = vi.fn().mockResolvedValue(fakeWs);
+
+    await client.selectProfile("profile-abc");
+    await client.selectProfile("profile-abc");
+
+    // second call is deduped by short completion window
+    expect(fakeWs.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not dedupe opposite favorite actions", async () => {
+    const client = createClient() as any;
+    const sentTypes: string[] = [];
+    const fakeWs = {
+      send: vi.fn((payload: string, cb?: (error?: Error) => void) => {
+        cb?.();
+        const parsed = JSON.parse(payload);
+        sentTypes.push(parsed.tp);
+        client.handleSharedMessage(JSON.stringify({
+          tp: `res:profiles:${parsed.tp.endsWith(":favorite") ? "favorite" : "unfavorite"}`,
+          rid: parsed.rid,
+        }));
+      }),
+    };
+    client.getOrCreateWs = vi.fn().mockResolvedValue(fakeWs);
+
+    await client.favoriteProfile("profile-fav", true);
+    await client.favoriteProfile("profile-fav", false);
+
+    expect(fakeWs.send).toHaveBeenCalledTimes(2);
+    expect(sentTypes).toEqual(["req:profiles:favorite", "req:profiles:unfavorite"]);
+  });
 });

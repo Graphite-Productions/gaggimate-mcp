@@ -135,8 +135,32 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
   let signatureMismatchLogMutedUntil = 0;
   let suppressedSignatureMismatchCount = 0;
   const SIGNATURE_MISMATCH_LOG_INTERVAL_MS = 60_000;
+  const WEBHOOK_EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  const WEBHOOK_EVENT_DEDUPE_MAX = 10_000;
   const inFlightPageProcessing = new Set<string>();
   const rerunRequestedForPage = new Set<string>();
+  const processedEventIds = new Map<string, number>();
+  const inFlightEventIds = new Set<string>();
+
+  const pruneProcessedEventIds = (now: number) => {
+    for (const [eventId, expiresAt] of processedEventIds.entries()) {
+      if (expiresAt <= now) {
+        processedEventIds.delete(eventId);
+      }
+    }
+    if (processedEventIds.size <= WEBHOOK_EVENT_DEDUPE_MAX) {
+      return;
+    }
+    const overflow = processedEventIds.size - WEBHOOK_EVENT_DEDUPE_MAX;
+    let removed = 0;
+    for (const eventId of processedEventIds.keys()) {
+      processedEventIds.delete(eventId);
+      removed += 1;
+      if (removed >= overflow) {
+        break;
+      }
+    }
+  };
 
   const logSignatureMismatch = () => {
     const now = Date.now();
@@ -159,7 +183,7 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
     signatureMismatchLogMutedUntil = now + SIGNATURE_MISMATCH_LOG_INTERVAL_MS;
   };
 
-  const enqueuePageProcessing = (pageId: string, updatedProps: string[]) => {
+  const enqueuePageProcessing = (pageId: string, updatedProps: string[], eventId: string | null) => {
     if (inFlightPageProcessing.has(pageId)) {
       rerunRequestedForPage.add(pageId);
       return;
@@ -167,6 +191,10 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
 
     const run = async () => {
       inFlightPageProcessing.add(pageId);
+      if (eventId) {
+        inFlightEventIds.add(eventId);
+      }
+      let completedWithoutUnhandledError = true;
       try {
         do {
           rerunRequestedForPage.delete(pageId);
@@ -174,10 +202,19 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
             await processWebhookEvent(gaggimate, notion, pageId, updatedProps);
           } catch (error) {
             console.error(`Webhook background processing failed for page ${pageId}:`, error);
+            completedWithoutUnhandledError = false;
           }
         } while (rerunRequestedForPage.has(pageId));
       } finally {
         inFlightPageProcessing.delete(pageId);
+        if (eventId) {
+          inFlightEventIds.delete(eventId);
+          if (completedWithoutUnhandledError) {
+            const now = Date.now();
+            pruneProcessedEventIds(now);
+            processedEventIds.set(eventId, now + WEBHOOK_EVENT_DEDUPE_TTL_MS);
+          }
+        }
       }
     };
 
@@ -234,6 +271,7 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
 
       const payload = req.body;
       const eventType = payload?.type;
+      const eventId = typeof payload?.id === "string" ? payload.id : null;
 
       // Only process page property changes
       if (
@@ -270,12 +308,25 @@ export function createWebhookRouter(gaggimate: GaggiMateClient, notion: NotionCl
         return;
       }
 
+      if (eventId) {
+        const now = Date.now();
+        pruneProcessedEventIds(now);
+        const isInFlightDuplicate = inFlightEventIds.has(eventId);
+        const processedUntil = processedEventIds.get(eventId) ?? 0;
+        const isProcessedDuplicate = processedUntil > now;
+        if (isInFlightDuplicate || isProcessedDuplicate) {
+          console.log(`Webhook duplicate event ${eventId}: skipping re-processing`);
+          res.json({ ok: true, action: "accepted", deduped: true });
+          return;
+        }
+      }
+
       // Respond immediately so Notion doesn't timeout waiting for device/API calls.
       res.json({ ok: true, action: "accepted" });
 
       // Process in the background with per-page coalescing to avoid event storms
       // generating concurrent device writes.
-      enqueuePageProcessing(pageId, updatedProps);
+      enqueuePageProcessing(pageId, updatedProps, eventId);
     } catch (error) {
       console.error("Webhook processing error:", error);
       res.status(500).json({

@@ -59,6 +59,11 @@ export class GaggiMateClient {
   private wsQueuedRequestCount = 0;
   private wsQueueOverloadWarned = false;
   private readonly WS_QUEUE_WARN_THRESHOLD = 12;
+  // Deduplicate bursty idempotent profile commands (webhook retries / rapid UI clicks).
+  // This is a short window only; we still allow re-sync shortly after.
+  private readonly COMMAND_DEDUPE_WINDOW_MS = 1500;
+  private inFlightCommandDedup = new Map<string, Promise<void>>();
+  private recentlyCompletedCommandDedupUntil = new Map<string, number>();
 
   constructor(config: GaggiMateConfig) {
     this.config = config;
@@ -206,6 +211,30 @@ export class GaggiMateClient {
     }
 
     console.warn(`GaggiMate WS connect stalled (${reason}); resetting socket`);
+  }
+
+  private runIdempotentCommandWithDedupe(key: string, operation: () => Promise<void>): Promise<void> {
+    const now = Date.now();
+    const suppressUntil = this.recentlyCompletedCommandDedupUntil.get(key) ?? 0;
+    if (now < suppressUntil) {
+      return Promise.resolve();
+    }
+
+    const inFlight = this.inFlightCommandDedup.get(key);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const run = operation()
+      .then(() => {
+        this.recentlyCompletedCommandDedupUntil.set(key, Date.now() + this.COMMAND_DEDUPE_WINDOW_MS);
+      })
+      .finally(() => {
+        this.inFlightCommandDedup.delete(key);
+      });
+
+    this.inFlightCommandDedup.set(key, run);
+    return run;
   }
 
   /**
@@ -371,25 +400,29 @@ export class GaggiMateClient {
 
   /** Select a profile by ID via WebSocket */
   async selectProfile(profileId: string): Promise<void> {
-    return this.sendWsRequest({
-      reqType: "req:profiles:select",
-      resType: "res:profiles:select",
-      payload: { id: profileId },
-      extractResult: () => undefined,
-      errorPrefix: "Failed to select profile",
-    });
+    const dedupeKey = `select:${profileId}`;
+    return this.runIdempotentCommandWithDedupe(dedupeKey, () =>
+      this.sendWsRequest({
+        reqType: "req:profiles:select",
+        resType: "res:profiles:select",
+        payload: { id: profileId },
+        extractResult: () => undefined,
+        errorPrefix: "Failed to select profile",
+      }));
   }
 
   /** Favorite or unfavorite a profile by ID via WebSocket */
   async favoriteProfile(profileId: string, favorite: boolean): Promise<void> {
     const action = favorite ? "favorite" : "unfavorite";
-    return this.sendWsRequest({
-      reqType: `req:profiles:${action}`,
-      resType: `res:profiles:${action}`,
-      payload: { id: profileId },
-      extractResult: () => undefined,
-      errorPrefix: `Failed to ${action} profile`,
-    });
+    const dedupeKey = `favorite:${profileId}:${favorite ? "1" : "0"}`;
+    return this.runIdempotentCommandWithDedupe(dedupeKey, () =>
+      this.sendWsRequest({
+        reqType: `req:profiles:${action}`,
+        resType: `res:profiles:${action}`,
+        payload: { id: profileId },
+        extractResult: () => undefined,
+        errorPrefix: `Failed to ${action} profile`,
+      }));
   }
 
   /** Fetch shot history index from GaggiMate HTTP API */
