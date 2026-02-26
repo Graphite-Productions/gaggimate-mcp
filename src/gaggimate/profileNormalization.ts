@@ -38,13 +38,20 @@ function normalizePhase(phase: ProfilePhase, fallbackTemperature: number): Profi
 }
 
 export function normalizeProfileForGaggiMate(profile: ProfileData): ProfileData {
+  // Runtime device state is controlled via dedicated APIs and Notion checkboxes.
+  // Never persist favorite/selected inside profile JSON saves.
+  const {
+    favorite: _favorite,
+    selected: _selected,
+    ...profileWithoutRuntimeFlags
+  } = profile as ProfileData;
   const fallbackTemperature = toFiniteNumber(profile.temperature) ?? 93;
   const phases = Array.isArray(profile.phases)
     ? profile.phases.map((phase) => normalizePhase(phase, fallbackTemperature))
     : [];
 
   return {
-    ...profile,
+    ...profileWithoutRuntimeFlags,
     temperature: fallbackTemperature,
     phases,
   };

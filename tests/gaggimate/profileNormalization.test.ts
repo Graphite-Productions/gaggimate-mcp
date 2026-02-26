@@ -71,4 +71,18 @@ describe("normalizeProfileForGaggiMate", () => {
     expect(profile.phases[0]).not.toHaveProperty("valve");
     expect(profile.phases[0]).not.toHaveProperty("pump");
   });
+
+  it("strips favorite and selected from normalized profile payload", () => {
+    const normalized = normalizeProfileForGaggiMate({
+      label: "Runtime flags",
+      type: "pro",
+      temperature: 93,
+      favorite: true,
+      selected: true,
+      phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+    });
+
+    expect(normalized).not.toHaveProperty("favorite");
+    expect(normalized).not.toHaveProperty("selected");
+  });
 });
