@@ -70,6 +70,7 @@ Copy `.env.example` to `.env` and fill in your values. Never commit `.env` — i
 | `PROFILE_RECONCILE_SAVE_LIMIT_PER_RUN` | Max device saves per reconcile cycle | `5` |
 | `PROFILE_SYNC_SELECTED_TO_DEVICE` | When false (default), bridge does not overwrite device selection with Notion — lets you change profiles on the GaggiMate | `false` |
 | `PROFILE_SYNC_FAVORITE_TO_DEVICE` | When false (default), bridge does not overwrite device favorite state with Notion | `false` |
+| `PROFILE_IMPORT_UNMATCHED_DEVICE_PROFILES` | When true, reconciler imports unmatched device profiles as Notion Draft rows | `false` |
 | `IMPORT_MISSING_PROFILES_FROM_SHOTS` | When true, shot sync fetches profiles from device to auto-import missing Notion profiles | `false` |
 | `BREW_TITLE_TIMEZONE` | Timezone for brew title date/AM/PM labels | `America/Los_Angeles` |
 | `HTTP_PORT` | HTTP server port | `3000` |

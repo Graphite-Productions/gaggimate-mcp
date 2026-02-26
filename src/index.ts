@@ -76,6 +76,7 @@ async function main() {
     console.log(`  Profile save limit per reconcile: ${config.sync.profileReconcileSaveLimitPerRun}`);
     console.log(`  Sync Selected to device: ${config.sync.profileSyncSelectedToDevice} (set PROFILE_SYNC_SELECTED_TO_DEVICE=true for Notion to control selection)`);
     console.log(`  Sync Favorite to device: ${config.sync.profileSyncFavoriteToDevice}`);
+    console.log(`  Import unmatched device profiles: ${config.sync.profileImportUnmatchedDeviceProfiles}`);
   }
   console.log(`  Brew title time zone: ${config.time.brewTitleTimeZone}`);
 
@@ -116,6 +117,7 @@ async function main() {
       maxSavesPerRun: config.sync.profileReconcileSaveLimitPerRun,
       syncSelectedToDevice: config.sync.profileSyncSelectedToDevice,
       syncFavoriteToDevice: config.sync.profileSyncFavoriteToDevice,
+      importUnmatchedDeviceProfiles: config.sync.profileImportUnmatchedDeviceProfiles,
     });
     setTimeout(() => profileReconciler!.start(), 10_000);
   }

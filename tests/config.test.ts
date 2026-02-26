@@ -24,6 +24,7 @@ describe("config", () => {
     expect(config.sync.profileReconcileSaveLimitPerRun).toBe(5);
     expect(config.sync.profileSyncSelectedToDevice).toBe(false);
     expect(config.sync.profileSyncFavoriteToDevice).toBe(false);
+    expect(config.sync.profileImportUnmatchedDeviceProfiles).toBe(false);
     expect(config.sync.importMissingProfilesFromShots).toBe(false);
   });
 

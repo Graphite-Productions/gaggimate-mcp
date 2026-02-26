@@ -55,6 +55,8 @@ export const config = {
     profileSyncSelectedToDevice: parseEnvBoolean(process.env.PROFILE_SYNC_SELECTED_TO_DEVICE, false),
     /** When false, the bridge does not overwrite the device's favorite state with Notion's Favorite checkbox. */
     profileSyncFavoriteToDevice: parseEnvBoolean(process.env.PROFILE_SYNC_FAVORITE_TO_DEVICE, false),
+    // When false, reconciler skips Draft imports of device-only profiles to reduce WS list load.
+    profileImportUnmatchedDeviceProfiles: parseEnvBoolean(process.env.PROFILE_IMPORT_UNMATCHED_DEVICE_PROFILES, false),
     // When false, shot polling never calls the device profile WebSocket APIs.
     // This keeps shot ingest prioritized and avoids profile-list fetch load.
     importMissingProfilesFromShots: parseEnvBoolean(process.env.IMPORT_MISSING_PROFILES_FROM_SHOTS, false),

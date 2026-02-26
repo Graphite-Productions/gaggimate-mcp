@@ -11,6 +11,7 @@ interface ProfileReconcilerOptions {
   maxSavesPerRun: number;
   syncSelectedToDevice?: boolean;
   syncFavoriteToDevice?: boolean;
+  importUnmatchedDeviceProfiles?: boolean;
 }
 
 export class ProfileReconciler {
@@ -63,38 +64,36 @@ export class ProfileReconciler {
     this.saveLimitWarned = false;
 
     try {
-      // Fetch device profiles and Notion profiles in parallel — they hit different services.
-      const [profilesResult, notionResult] = await Promise.allSettled([
-        this.gaggimate.fetchProfiles(),
-        this.notion.listExistingProfiles(),
-      ]);
+      const notionIndex = await this.notion.listExistingProfiles();
+      const shouldImportUnmatchedDeviceProfiles = this.options.importUnmatchedDeviceProfiles !== false;
+      const shouldSnapshotDeviceProfiles =
+        shouldImportUnmatchedDeviceProfiles ||
+        notionIndex.all.some((profile) => profile.pushStatus === "Pushed" || profile.pushStatus === "Archived");
 
-      if (profilesResult.status === "rejected") {
-        const error = profilesResult.reason;
-        if (isConnectivityError(error)) {
-          const summary = summarizeConnectivityError(error);
-          if (!this.connectivityWarningActive) {
-            console.warn(`Profile reconciler: GaggiMate unreachable (${summary}), will retry next interval`);
-            this.connectivityWarningActive = true;
+      let deviceProfiles: any[] = [];
+      if (shouldSnapshotDeviceProfiles) {
+        try {
+          deviceProfiles = await this.gaggimate.fetchProfiles();
+          if (this.connectivityWarningActive) {
+            console.log("Profile reconciler: GaggiMate connectivity restored");
+            this.connectivityWarningActive = false;
+            this.connectivityCooldownUntil = 0;
           }
-          this.connectivityCooldownUntil = Date.now() + this.CONNECTIVITY_COOLDOWN_MS;
-        } else {
-          console.error("Profile reconciler: failed to fetch device profiles:", error);
+        } catch (error) {
+          if (isConnectivityError(error)) {
+            const summary = summarizeConnectivityError(error);
+            if (!this.connectivityWarningActive) {
+              console.warn(`Profile reconciler: GaggiMate unreachable (${summary}), will retry next interval`);
+              this.connectivityWarningActive = true;
+            }
+            this.connectivityCooldownUntil = Date.now() + this.CONNECTIVITY_COOLDOWN_MS;
+          } else {
+            console.error("Profile reconciler: failed to fetch device profiles:", error);
+          }
+          return;
         }
-        return;
       }
 
-      const deviceProfiles: any[] = profilesResult.value;
-      if (this.connectivityWarningActive) {
-        console.log("Profile reconciler: GaggiMate connectivity restored");
-        this.connectivityWarningActive = false;
-        this.connectivityCooldownUntil = 0;
-      }
-
-      if (notionResult.status === "rejected") {
-        throw notionResult.reason;
-      }
-      const notionIndex = notionResult.value;
       const deviceById = new Map<string, any>();
       for (const deviceProfile of deviceProfiles) {
         const profileId = this.notion.extractProfileId(deviceProfile);
@@ -137,43 +136,51 @@ export class ProfileReconciler {
         }
 
         try {
-          await this.processNotionProfile(notionProfile, deviceById, matchedDeviceIds, matchedDeviceNames);
+          await this.processNotionProfile(
+            notionProfile,
+            deviceById,
+            matchedDeviceIds,
+            matchedDeviceNames,
+            shouldSnapshotDeviceProfiles,
+          );
         } catch (error) {
           console.error(`Profile reconciler: failed to process page ${notionProfile.pageId}:`, error);
         }
       }
 
-      for (const deviceProfile of deviceProfiles) {
-        const deviceId = this.notion.extractProfileId(deviceProfile);
-        const normalizedName = this.normalizeDeviceProfileName(deviceProfile);
+      if (shouldImportUnmatchedDeviceProfiles) {
+        for (const deviceProfile of deviceProfiles) {
+          const deviceId = this.notion.extractProfileId(deviceProfile);
+          const normalizedName = this.normalizeDeviceProfileName(deviceProfile);
 
-        if (deviceId && matchedDeviceIds.has(deviceId)) {
-          continue;
-        }
-        if (normalizedName && (matchedDeviceNames.has(normalizedName) || knownNotionNames.has(normalizedName))) {
-          continue;
-        }
-        if (!normalizedName) {
-          continue;
-        }
-
-        const profileName = this.profileLabel(deviceProfile);
-        if (!profileName) {
-          continue;
-        }
-
-        try {
-          const pageId = await this.notion.createDraftProfile(deviceProfile);
-          if (deviceId) {
-            matchedDeviceIds.add(deviceId);
+          if (deviceId && matchedDeviceIds.has(deviceId)) {
+            continue;
           }
-          matchedDeviceNames.add(normalizedName);
-          knownNotionNames.add(normalizedName);
+          if (normalizedName && (matchedDeviceNames.has(normalizedName) || knownNotionNames.has(normalizedName))) {
+            continue;
+          }
+          if (!normalizedName) {
+            continue;
+          }
 
-          await this.notion.uploadProfileImage(pageId, profileName, deviceProfile, JSON.stringify(deviceProfile));
-          console.log(`Profile reconciler: imported device profile "${profileName}" as Draft`);
-        } catch (error) {
-          console.error(`Profile reconciler: failed to import profile "${profileName}" as Draft:`, error);
+          const profileName = this.profileLabel(deviceProfile);
+          if (!profileName) {
+            continue;
+          }
+
+          try {
+            const pageId = await this.notion.createDraftProfile(deviceProfile);
+            if (deviceId) {
+              matchedDeviceIds.add(deviceId);
+            }
+            matchedDeviceNames.add(normalizedName);
+            knownNotionNames.add(normalizedName);
+
+            await this.notion.uploadProfileImage(pageId, profileName, deviceProfile, JSON.stringify(deviceProfile));
+            console.log(`Profile reconciler: imported device profile "${profileName}" as Draft`);
+          } catch (error) {
+            console.error(`Profile reconciler: failed to import profile "${profileName}" as Draft:`, error);
+          }
         }
       }
 
@@ -221,16 +228,21 @@ export class ProfileReconciler {
     deviceById: Map<string, any>,
     matchedDeviceIds: Set<string>,
     matchedDeviceNames: Set<string>,
+    hasDeviceSnapshot: boolean,
   ): Promise<void> {
     switch (notionProfile.pushStatus) {
       case "Queued":
         await this.handleQueuedProfile(notionProfile, matchedDeviceIds, matchedDeviceNames);
         break;
       case "Pushed":
-        await this.handlePushedProfile(notionProfile, deviceById);
+        if (hasDeviceSnapshot) {
+          await this.handlePushedProfile(notionProfile, deviceById);
+        }
         break;
       case "Archived":
-        await this.handleArchivedProfile(notionProfile, deviceById);
+        if (hasDeviceSnapshot) {
+          await this.handleArchivedProfile(notionProfile, deviceById);
+        }
         break;
       case "Draft":
       case "Failed":

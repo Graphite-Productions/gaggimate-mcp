@@ -52,13 +52,22 @@ function createMockNotion() {
 async function runReconcile(
   gaggimate: any,
   notion: any,
-  overrides?: { maxDeletesPerRun?: number; maxSavesPerRun?: number },
+  overrides?: {
+    maxDeletesPerRun?: number;
+    maxSavesPerRun?: number;
+    syncSelectedToDevice?: boolean;
+    syncFavoriteToDevice?: boolean;
+    importUnmatchedDeviceProfiles?: boolean;
+  },
 ): Promise<void> {
   const reconciler = new ProfileReconciler(gaggimate, notion, {
     intervalMs: 1000,
     deleteEnabled: true,
     maxDeletesPerRun: overrides?.maxDeletesPerRun ?? 3,
     maxSavesPerRun: overrides?.maxSavesPerRun ?? 5,
+    syncSelectedToDevice: overrides?.syncSelectedToDevice,
+    syncFavoriteToDevice: overrides?.syncFavoriteToDevice,
+    importUnmatchedDeviceProfiles: overrides?.importUnmatchedDeviceProfiles,
   });
   await (reconciler as any).reconcile();
 }
@@ -94,6 +103,35 @@ describe("ProfileReconciler", () => {
     expect(queuedPayload.temperature).toBe(93);
     expect(queuedPayload.phases).toHaveLength(1);
     expect(notion.updatePushStatus).toHaveBeenCalledWith("queued-page", "Pushed", expect.any(String), true, expect.stringContaining('"id":"device-123"'));
+  });
+
+  it("skips full device profile snapshot when only queued profiles exist and imports are disabled", async () => {
+    const gaggimate = createMockGaggimate();
+    gaggimate.saveProfile.mockResolvedValue({ id: "device-queued-only" });
+    const notion = createMockNotion();
+    notion.listExistingProfiles.mockResolvedValue({
+      byName: new Map(),
+      byId: new Map(),
+      all: [
+        createProfileRecord({
+          pageId: "queued-only-page",
+          normalizedName: "queued only",
+          profileJson: JSON.stringify({
+            label: "Queued Only",
+            temperature: 93,
+            phases: [{ name: "Extraction", phase: "brew", duration: 30 }],
+          }),
+          pushStatus: "Queued",
+        }),
+      ],
+    });
+
+    await runReconcile(gaggimate as any, notion as any, {
+      importUnmatchedDeviceProfiles: false,
+    });
+
+    expect(gaggimate.fetchProfiles).not.toHaveBeenCalled();
+    expect(gaggimate.saveProfile).toHaveBeenCalledTimes(1);
   });
 
   it("syncs favorite and selected immediately after queued push", async () => {

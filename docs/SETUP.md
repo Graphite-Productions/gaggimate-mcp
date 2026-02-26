@@ -243,6 +243,7 @@ PROFILE_RECONCILE_DELETE_LIMIT_PER_RUN=3
 PROFILE_RECONCILE_SAVE_LIMIT_PER_RUN=5
 PROFILE_SYNC_SELECTED_TO_DEVICE=false
 PROFILE_SYNC_FAVORITE_TO_DEVICE=false
+PROFILE_IMPORT_UNMATCHED_DEVICE_PROFILES=false
 IMPORT_MISSING_PROFILES_FROM_SHOTS=false
 RECENT_SHOT_LOOKBACK_COUNT=5
 # How often to scan for brews with stale JSON or missing chart images (ms, default 1 hour)
@@ -323,12 +324,16 @@ Pull an espresso shot on your machine. Within 30 seconds, a new entry should app
    {"temperature":93,"phases":[{"name":"Preinfusion","phase":"preinfusion","duration":10,"pump":{"target":"pressure","pressure":3}},{"name":"Extraction","phase":"brew","duration":30,"pump":{"target":"pressure","pressure":9}}]}
    ```
 3. Set **Push Status** to `Queued`
-4. Within the next reconcile cycle (default 30s), or immediately via webhook, the status should change to `Pushed`
+4. Within the next reconcile cycle (default 60s), or immediately via webhook, the status should change to `Pushed`
 5. Check the GaggiMate — the profile should appear or update on device
 
 ### 5. Test device profile import (GaggiMate → Notion)
+Prerequisite: enable at least one of:
+- `PROFILE_IMPORT_UNMATCHED_DEVICE_PROFILES=true` (periodic reconciler import)
+- `IMPORT_MISSING_PROFILES_FROM_SHOTS=true` (shot-driven import when profile is missing)
+
 1. Create a new profile on the GaggiMate UI
-2. Wait up to 30 seconds (default reconcile interval), or pull a shot with that profile
+2. Wait up to 60 seconds (default reconcile interval), or pull a shot with that profile
 3. Confirm a new page appears in the Notion Profiles DB
 4. Confirm imported profile starts with `Push Status = Draft`
 5. Confirm the brew's `Profile` relation links to that profile
@@ -433,6 +438,7 @@ ghcr.io/graphite-productions/gaggimate-bridge:2026-02-25
 | Control panel shows "Device offline" | Bridge can't reach GaggiMate (same as `reachable: false` in /health) | Fix GAGGIMATE_HOST, network, or Docker routing; control panel uses the bridge to talk to the device |
 | Can't change profiles on the GaggiMate — selection keeps reverting | Bridge overwrites device selection with Notion's Selected checkbox every 30s | Set `PROFILE_SYNC_SELECTED_TO_DEVICE=false` (default) so the device is the source of truth. Use the control panel or device UI to switch profiles. |
 | Favorite changes in Notion do not apply to device | Favorite sync is opt-in | Set `PROFILE_SYNC_FAVORITE_TO_DEVICE=true` and restart |
+| Device-created profiles never appear in Notion | Device-profile auto-import is disabled by default to reduce WS load | Set `PROFILE_IMPORT_UNMATCHED_DEVICE_PROFILES=true` and/or `IMPORT_MISSING_PROFILES_FROM_SHOTS=true` |
 | Shots sync but missing profiles are not auto-imported during shot polling | Shot-priority mode disables inline profile import by default | Set `IMPORT_MISSING_PROFILES_FROM_SHOTS=true` if you want shot polling to fetch/import profiles from device |
 
 ---

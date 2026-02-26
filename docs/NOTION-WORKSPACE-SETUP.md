@@ -128,7 +128,7 @@ User/AI-managed fields in `Profiles`:
 ### Reconcile Rules
 
 - If a `Pushed` profile differs from device, bridge pushes Notion JSON to device.
-- Device-only profiles are imported as `Draft`.
+- Device-only profiles can be imported as `Draft` when import flags are enabled (`PROFILE_IMPORT_UNMATCHED_DEVICE_PROFILES` and/or `IMPORT_MISSING_PROFILES_FROM_SHOTS`).
 - Webhook updates for `Queued` push immediately.
 - Webhook updates for `Pushed` apply `Favorite`/`Selected` only when `PROFILE_SYNC_FAVORITE_TO_DEVICE` / `PROFILE_SYNC_SELECTED_TO_DEVICE` are enabled.
 - Archived non-utility profiles are deleted from device.
