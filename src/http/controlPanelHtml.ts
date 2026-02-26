@@ -32,6 +32,11 @@ export function getControlPanelHtml(apiBasePath: string): string {
       color: #888;
       margin-bottom: 1rem;
     }
+    .source-note {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin: -0.5rem 0 0.75rem;
+    }
     .status {
       display: inline-flex;
       align-items: center;
@@ -105,6 +110,13 @@ export function getControlPanelHtml(apiBasePath: string): string {
     }
     .favorite-btn:hover { opacity: 0.8; }
     .favorite-btn.favorited { color: #fbbf24; }
+    .unavailable {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      border: 1px solid #4b5563;
+      border-radius: 6px;
+      padding: 0.2rem 0.45rem;
+    }
     .error-msg {
       background: #3d1a1a;
       color: #ff7f7f;
@@ -119,6 +131,7 @@ export function getControlPanelHtml(apiBasePath: string): string {
 <body>
   <h1>GaggiMate Control</h1>
   <p class="subtitle">Switch profiles when the device web portal isn't accessible</p>
+  <p id="source-note" class="source-note"></p>
   <div id="status" class="status offline">
     <span class="status-dot"></span>
     <span id="status-text">Checking...</span>
@@ -133,6 +146,7 @@ export function getControlPanelHtml(apiBasePath: string): string {
     const statusEl = document.getElementById('status');
     const statusText = document.getElementById('status-text');
     const errorEl = document.getElementById('error');
+    const sourceNoteEl = document.getElementById('source-note');
     const profilesEl = document.getElementById('profiles');
     const refreshBtn = document.getElementById('refresh');
 
@@ -149,6 +163,7 @@ export function getControlPanelHtml(apiBasePath: string): string {
     async function loadProfiles() {
       refreshBtn.disabled = true;
       showError('');
+      sourceNoteEl.textContent = '';
       try {
         const res = await fetch(API + '/profiles');
         if (!res.ok) {
@@ -157,6 +172,12 @@ export function getControlPanelHtml(apiBasePath: string): string {
         }
         const data = await res.json();
         setStatus(true);
+        if (data.source) {
+          sourceNoteEl.textContent = 'Profile source: ' + data.source;
+        }
+        if (data.warning) {
+          showError(data.warning);
+        }
         renderProfiles(data.profiles || []);
       } catch (err) {
         setStatus(false);
@@ -176,11 +197,17 @@ export function getControlPanelHtml(apiBasePath: string): string {
         const selected = p.selected ? ' selected' : '';
         const favClass = p.favorite ? 'favorited' : '';
         const favChar = p.favorite ? '★' : '☆';
+        const profileId = (typeof p.id === 'string' && p.id.trim()) ? p.id : '';
+        const actions = profileId
+          ? (
+            '<button class="favorite-btn ' + favClass + '" data-id="' + escapeHtml(profileId) + '" data-fav="' + p.favorite + '" title="Toggle favorite">' + favChar + '</button>' +
+            '<button class="select-btn" data-id="' + escapeHtml(profileId) + '">Select</button>'
+          )
+          : '<span class="unavailable">No ID</span>';
         return '<li class="profile' + selected + '" data-id="' + escapeHtml(p.id) + '">' +
           '<span class="profile-name">' + escapeHtml(p.label || p.id || 'Unnamed') + '</span>' +
           '<div class="profile-actions">' +
-          '<button class="favorite-btn ' + favClass + '" data-id="' + escapeHtml(p.id) + '" data-fav="' + p.favorite + '" title="Toggle favorite">' + favChar + '</button>' +
-          '<button class="select-btn" data-id="' + escapeHtml(p.id) + '">Select</button>' +
+          actions +
           '</div></li>';
       }).join('');
 
@@ -200,6 +227,10 @@ export function getControlPanelHtml(apiBasePath: string): string {
     }
 
     async function selectProfile(id) {
+      if (!id) {
+        showError('Profile ID missing. Try refreshing.');
+        return;
+      }
       try {
         const res = await fetch(API + '/profiles/' + encodeURIComponent(id) + '/select', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         if (!res.ok) throw new Error((await res.json()).detail || 'Select failed');
@@ -210,6 +241,10 @@ export function getControlPanelHtml(apiBasePath: string): string {
     }
 
     async function toggleFavorite(id, currentlyFav) {
+      if (!id) {
+        showError('Profile ID missing. Try refreshing.');
+        return;
+      }
       const fav = !currentlyFav;
       try {
         const res = await fetch(API + '/profiles/' + encodeURIComponent(id) + '/favorite', {
