@@ -149,6 +149,16 @@ export function getControlPanelHtml(apiBasePath: string): string {
     const sourceNoteEl = document.getElementById('source-note');
     const profilesEl = document.getElementById('profiles');
     const refreshBtn = document.getElementById('refresh');
+    let loadInFlight = false;
+    let mutateInFlight = false;
+
+    function updateControlState() {
+      const busy = loadInFlight || mutateInFlight;
+      refreshBtn.disabled = busy;
+      profilesEl.querySelectorAll('.select-btn, .favorite-btn').forEach(btn => {
+        btn.disabled = busy;
+      });
+    }
 
     function showError(msg) {
       errorEl.textContent = msg;
@@ -161,7 +171,11 @@ export function getControlPanelHtml(apiBasePath: string): string {
     }
 
     async function loadProfiles() {
-      refreshBtn.disabled = true;
+      if (loadInFlight) {
+        return;
+      }
+      loadInFlight = true;
+      updateControlState();
       showError('');
       sourceNoteEl.textContent = '';
       try {
@@ -184,7 +198,8 @@ export function getControlPanelHtml(apiBasePath: string): string {
         showError(err.message || 'Could not reach device');
         profilesEl.innerHTML = '<li class="empty">Device unreachable. Check GAGGIMATE_HOST and network.</li>';
       } finally {
-        refreshBtn.disabled = false;
+        loadInFlight = false;
+        updateControlState();
       }
     }
 
@@ -217,6 +232,7 @@ export function getControlPanelHtml(apiBasePath: string): string {
       profilesEl.querySelectorAll('.favorite-btn').forEach(btn => {
         btn.addEventListener('click', () => toggleFavorite(btn.dataset.id, btn.dataset.fav === 'true'));
       });
+      updateControlState();
     }
 
     function escapeHtml(s) {
@@ -231,12 +247,20 @@ export function getControlPanelHtml(apiBasePath: string): string {
         showError('Profile ID missing. Try refreshing.');
         return;
       }
+      if (mutateInFlight) {
+        return;
+      }
+      mutateInFlight = true;
+      updateControlState();
       try {
         const res = await fetch(API + '/profiles/' + encodeURIComponent(id) + '/select', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         if (!res.ok) throw new Error((await res.json()).detail || 'Select failed');
-        loadProfiles();
+        await loadProfiles();
       } catch (err) {
         showError(err.message);
+      } finally {
+        mutateInFlight = false;
+        updateControlState();
       }
     }
 
@@ -245,7 +269,12 @@ export function getControlPanelHtml(apiBasePath: string): string {
         showError('Profile ID missing. Try refreshing.');
         return;
       }
+      if (mutateInFlight) {
+        return;
+      }
       const fav = !currentlyFav;
+      mutateInFlight = true;
+      updateControlState();
       try {
         const res = await fetch(API + '/profiles/' + encodeURIComponent(id) + '/favorite', {
           method: 'POST',
@@ -253,9 +282,12 @@ export function getControlPanelHtml(apiBasePath: string): string {
           body: JSON.stringify({ favorite: fav })
         });
         if (!res.ok) throw new Error((await res.json()).detail || 'Update failed');
-        loadProfiles();
+        await loadProfiles();
       } catch (err) {
         showError(err.message);
+      } finally {
+        mutateInFlight = false;
+        updateControlState();
       }
     }
 
