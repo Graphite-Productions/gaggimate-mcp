@@ -154,6 +154,40 @@ describe("device route profile listing", () => {
     expect(notion.listExistingProfiles).toHaveBeenCalledTimes(1);
   });
 
+  it("reports source=device when notion fallback adds no additional ids", async () => {
+    const gaggimate = {
+      fetchProfiles: vi.fn().mockResolvedValue([
+        { id: "device-1", label: "One", selected: true, favorite: false, type: "pro" },
+      ]),
+      selectProfile: vi.fn(),
+      favoriteProfile: vi.fn(),
+    };
+    const notion = {
+      listExistingProfiles: vi.fn().mockResolvedValue({
+        byName: new Map(),
+        byId: new Map(),
+        all: [
+          notionRecord({
+            pageId: "page-device-1",
+            profileId: "device-1",
+            profileJson: JSON.stringify({ id: "device-1", label: "One" }),
+            pushStatus: "Pushed",
+          }),
+        ],
+      }),
+    };
+
+    const router = createDeviceRouter(gaggimate as any, notion as any);
+    const handler = getRouteHandler(router, "/profiles", "get");
+    const res = createResponse();
+
+    await handler({}, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.jsonBody.source).toBe("device");
+    expect(res.jsonBody.profiles).toHaveLength(1);
+  });
+
   it("invalidates cached device profile list after select", async () => {
     const gaggimate = {
       fetchProfiles: vi.fn()

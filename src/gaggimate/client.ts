@@ -55,6 +55,10 @@ export class GaggiMateClient {
   private readonly WS_IDLE_TTL = 8000;
   // Serializes request/response cycles to keep ESP32 WebSocket load predictable.
   private wsRequestQueue: Promise<void> = Promise.resolve();
+  // Number of queued + active serialized WS requests.
+  private wsQueuedRequestCount = 0;
+  private wsQueueOverloadWarned = false;
+  private readonly WS_QUEUE_WARN_THRESHOLD = 12;
 
   constructor(config: GaggiMateConfig) {
     this.config = config;
@@ -222,10 +226,58 @@ export class GaggiMateClient {
       });
     });
 
+    this.wsQueuedRequestCount += 1;
+    if (!this.wsQueueOverloadWarned && this.wsQueuedRequestCount >= this.WS_QUEUE_WARN_THRESHOLD) {
+      this.wsQueueOverloadWarned = true;
+      console.warn(
+        `GaggiMate WS queue depth is high (${this.wsQueuedRequestCount}); requests are being throttled to protect the device`,
+      );
+    }
+
     // Chain each request to ensure only one in-flight WS round-trip at a time.
     const chained = this.wsRequestQueue.catch(() => undefined).then(runRequest);
     this.wsRequestQueue = chained.then(() => undefined, () => undefined);
-    return chained;
+    return chained.finally(() => {
+      this.wsQueuedRequestCount = Math.max(0, this.wsQueuedRequestCount - 1);
+      if (this.wsQueueOverloadWarned && this.wsQueuedRequestCount <= Math.floor(this.WS_QUEUE_WARN_THRESHOLD / 2)) {
+        this.wsQueueOverloadWarned = false;
+      }
+    });
+  }
+
+  getConnectionDiagnostics(): {
+    wsQueueDepth: number;
+    wsPendingResponses: number;
+    wsState: "none" | "connecting" | "open" | "closing" | "closed" | "unknown";
+  } {
+    let wsState: "none" | "connecting" | "open" | "closing" | "closed" | "unknown" = "none";
+    if (this.sharedWs) {
+      switch (this.sharedWs.readyState) {
+        case WebSocket.CONNECTING:
+          wsState = "connecting";
+          break;
+        case WebSocket.OPEN:
+          wsState = "open";
+          break;
+        case WebSocket.CLOSING:
+          wsState = "closing";
+          break;
+        case WebSocket.CLOSED:
+          wsState = "closed";
+          break;
+        default:
+          wsState = "unknown";
+          break;
+      }
+    } else if (this.sharedWsConnectPromise) {
+      wsState = "connecting";
+    }
+
+    return {
+      wsQueueDepth: this.wsQueuedRequestCount,
+      wsPendingResponses: this.pendingRequests.size,
+      wsState,
+    };
   }
 
   /** Check if GaggiMate is reachable via HTTP */

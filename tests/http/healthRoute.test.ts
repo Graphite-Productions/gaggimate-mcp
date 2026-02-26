@@ -36,6 +36,11 @@ describe("health route", () => {
       const gaggimate = {
         host: "192.168.1.10",
         isReachable: vi.fn().mockResolvedValue(true),
+        getConnectionDiagnostics: vi.fn().mockReturnValue({
+          wsQueueDepth: 2,
+          wsPendingResponses: 1,
+          wsState: "open",
+        }),
       };
       const notion = {
         isConnected: vi.fn().mockResolvedValue(true),
@@ -49,6 +54,11 @@ describe("health route", () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.jsonBody.webhook.signatureVerificationEnabled).toBe(true);
+      expect(res.jsonBody.gaggimate.websocket).toEqual({
+        wsQueueDepth: 2,
+        wsPendingResponses: 1,
+        wsState: "open",
+      });
     } finally {
       (config as any).webhook.secret = previousSecret;
     }

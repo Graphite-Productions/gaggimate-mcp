@@ -95,4 +95,83 @@ describe("GaggiMateClient WebSocket request flow", () => {
       errorPrefix: "test failed",
     })).rejects.toThrow("WebSocket send failed: socket write failed");
   });
+
+  it("continues processing queued requests after a failed send", async () => {
+    const client = createClient() as any;
+    const fakeWs = {
+      send: vi.fn((payload: string, cb?: (error?: Error) => void) => {
+        const parsed = JSON.parse(payload);
+        if (parsed.tp === "req:first") {
+          cb?.(new Error("first failed"));
+          return;
+        }
+        cb?.();
+        client.handleSharedMessage(JSON.stringify({
+          tp: "res:second",
+          rid: parsed.rid,
+          result: "second-ok",
+        }));
+      }),
+    };
+    client.getOrCreateWs = vi.fn().mockResolvedValue(fakeWs);
+
+    const first = client.sendWsRequest({
+      reqType: "req:first",
+      resType: "res:first",
+      extractResult: (res: any) => res,
+      errorPrefix: "first failed",
+    });
+    const second = client.sendWsRequest({
+      reqType: "req:second",
+      resType: "res:second",
+      extractResult: (res: any) => res.result,
+      errorPrefix: "second failed",
+    });
+
+    await expect(first).rejects.toThrow("WebSocket send failed: first failed");
+    await expect(second).resolves.toBe("second-ok");
+    expect(fakeWs.send).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes websocket diagnostics for queue depth and pending responses", async () => {
+    const client = createClient() as any;
+    const gate = createDeferred();
+    const fakeWs = {
+      readyState: 1, // OPEN
+      send: vi.fn((payload: string, cb?: (error?: Error) => void) => {
+        cb?.();
+        const parsed = JSON.parse(payload);
+        gate.promise.then(() => {
+          client.handleSharedMessage(JSON.stringify({
+            tp: "res:test",
+            rid: parsed.rid,
+            result: "ok",
+          }));
+        });
+      }),
+    };
+    client.sharedWs = fakeWs;
+    client.getOrCreateWs = vi.fn().mockResolvedValue(fakeWs);
+
+    const request = client.sendWsRequest({
+      reqType: "req:test",
+      resType: "res:test",
+      extractResult: (res: any) => res.result,
+      errorPrefix: "test failed",
+    });
+
+    await vi.waitFor(() => {
+      const diagnostics = client.getConnectionDiagnostics();
+      expect(diagnostics.wsState).toBe("open");
+      expect(diagnostics.wsQueueDepth).toBe(1);
+      expect(diagnostics.wsPendingResponses).toBe(1);
+    });
+
+    gate.resolve();
+    await expect(request).resolves.toBe("ok");
+
+    const diagnosticsAfter = client.getConnectionDiagnostics();
+    expect(diagnosticsAfter.wsQueueDepth).toBe(0);
+    expect(diagnosticsAfter.wsPendingResponses).toBe(0);
+  });
 });

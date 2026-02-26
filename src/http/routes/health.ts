@@ -21,6 +21,9 @@ export function createHealthRouter(
         gaggimate.isReachable(),
         notion.isConnected(),
       ]);
+      const gaggimateDiagnostics = typeof (gaggimate as any).getConnectionDiagnostics === "function"
+        ? (gaggimate as any).getConnectionDiagnostics()
+        : null;
 
       const syncState = getSyncState();
 
@@ -32,6 +35,7 @@ export function createHealthRouter(
         gaggimate: {
           host: gaggimate.host,
           reachable: gaggiReachable,
+          ...(gaggimateDiagnostics ? { websocket: gaggimateDiagnostics } : {}),
         },
         notion: {
           connected: notionConnected,

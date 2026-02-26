@@ -166,10 +166,11 @@ export function createDeviceRouter(gaggimate: GaggiMateClient, notion: NotionCli
       const deviceProfiles = await loadDeviceProfiles();
       const notionFallbackProfiles = await notionFallbackPromise;
       const mergedProfiles = mergeDeviceAndNotionProfiles(deviceProfiles, notionFallbackProfiles);
+      const hasNotionMergedProfiles = mergedProfiles.some((profile) => profile.source === "notion");
 
       res.json({
         profiles: mergedProfiles,
-        source: notionFallbackProfiles.length > 0 ? "device+notion" : "device",
+        source: hasNotionMergedProfiles ? "device+notion" : "device",
       });
     } catch (error) {
       const notionFallbackProfiles = await notionFallbackPromise;

@@ -184,4 +184,69 @@ describe("NotionClient profile helpers", () => {
     const pageId = await notion.getProfilePageIdByName("Linea Gesha — Extended Bloom Clarity v3");
     expect(pageId).toBe("target-page");
   });
+
+  it("caches missing profile lookups to avoid repeated full scans", async () => {
+    const { notion, mockClient } = createNotionClient();
+    mockClient.databases.query
+      .mockResolvedValueOnce({
+        results: [],
+        has_more: false,
+        next_cursor: null,
+      })
+      .mockResolvedValueOnce({
+        results: [],
+        has_more: false,
+        next_cursor: null,
+      });
+
+    const first = await notion.getProfilePageIdByName("Missing Profile");
+    const second = await notion.getProfilePageIdByName("Missing Profile");
+
+    expect(first).toBeNull();
+    expect(second).toBeNull();
+    // First lookup does exact match + fallback scan, second is served from negative cache.
+    expect(mockClient.databases.query).toHaveBeenCalledTimes(2);
+  });
+
+  it("throttles repeated missing-profile warnings during brew writes", async () => {
+    const { notion, mockClient } = createNotionClient();
+    mockClient.databases.query
+      .mockResolvedValueOnce({
+        results: [],
+        has_more: false,
+        next_cursor: null,
+      })
+      .mockResolvedValueOnce({
+        results: [],
+        has_more: false,
+        next_cursor: null,
+      });
+    mockClient.pages.create.mockResolvedValue({ id: "brew-page" });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const brewData = {
+      activityId: "1",
+      title: "#001 - Feb 14 AM",
+      date: "2026-02-14T08:00:00.000Z",
+      brewTime: 30,
+      yieldOut: 36,
+      brewTemp: 93,
+      peakPressure: 9,
+      preinfusionTime: 5,
+      totalVolume: 40,
+      profileName: "Unknown Profile",
+      source: "Auto" as const,
+    };
+
+    try {
+      await notion.createBrew(brewData);
+      await notion.createBrew(brewData);
+
+      expect(mockClient.pages.create).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith('No Profiles DB match found for profile name "Unknown Profile"');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });

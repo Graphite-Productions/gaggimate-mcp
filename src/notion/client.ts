@@ -29,10 +29,15 @@ export class NotionClient {
   private client: Client;
   private config: NotionConfig;
   private imageUploadDisabledReason: string | null = null;
-  // Cache positive profile name→pageId lookups. Only positive results are cached so
-  // newly-created profiles are always found without explicit invalidation.
-  private profilePageIdCache = new Map<string, { pageId: string; expiresAt: number }>();
+  // Cache profile name→pageId lookups, including misses, to reduce repeated full DB scans.
+  private profilePageIdCache = new Map<string, { pageId: string | null; expiresAt: number }>();
+  // Deduplicate concurrent lookups for the same normalized profile name.
+  private profilePageIdLookupInFlight = new Map<string, Promise<string | null>>();
+  // Throttle noisy missing-profile warnings when Notion profiles do not include machine labels.
+  private profileMissingWarnUntil = new Map<string, number>();
   private readonly PROFILE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  private readonly PROFILE_NEGATIVE_CACHE_TTL = 60 * 1000; // 1 minute
+  private readonly PROFILE_MISSING_WARN_TTL = 5 * 60 * 1000; // 5 minutes
 
   constructor(notionConfig: NotionConfig) {
     this.config = notionConfig;
@@ -409,43 +414,61 @@ export class NotionClient {
       return cached.pageId;
     }
 
-    // Fast path: exact title match.
-    const exactMatch = await this.client.databases.query({
-      database_id: this.config.profilesDbId,
-      filter: {
-        property: "Profile Name",
-        title: { equals: profileName.trim() },
-      },
-      page_size: 1,
-    });
-    if (exactMatch.results.length > 0) {
-      const pageId = exactMatch.results[0].id;
-      this.profilePageIdCache.set(requestedName, { pageId, expiresAt: Date.now() + this.PROFILE_CACHE_TTL });
-      return pageId;
+    const inFlightLookup = this.profilePageIdLookupInFlight.get(requestedName);
+    if (inFlightLookup) {
+      return inFlightLookup;
     }
 
-    // Fallback: scan profile names to allow case/spacing/encoding variations.
-    let cursor: string | undefined;
-    do {
-      const response = await this.client.databases.query({
+    const lookupPromise = (async (): Promise<string | null> => {
+      // Fast path: exact title match.
+      const exactMatch = await this.client.databases.query({
         database_id: this.config.profilesDbId,
-        start_cursor: cursor,
-        page_size: 100,
+        filter: {
+          property: "Profile Name",
+          title: { equals: profileName.trim() },
+        },
+        page_size: 1,
       });
-
-      for (const page of response.results as any[]) {
-        const candidateName = this.normalizeProfileName(this.extractTitle(page));
-        if (candidateName === requestedName) {
-          const pageId = page.id;
-          this.profilePageIdCache.set(requestedName, { pageId, expiresAt: Date.now() + this.PROFILE_CACHE_TTL });
-          return pageId;
-        }
+      if (exactMatch.results.length > 0) {
+        const pageId = exactMatch.results[0].id;
+        this.profilePageIdCache.set(requestedName, { pageId, expiresAt: Date.now() + this.PROFILE_CACHE_TTL });
+        this.profileMissingWarnUntil.delete(requestedName);
+        return pageId;
       }
 
-      cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
-    } while (cursor);
+      // Fallback: scan profile names to allow case/spacing/encoding variations.
+      let cursor: string | undefined;
+      do {
+        const response = await this.client.databases.query({
+          database_id: this.config.profilesDbId,
+          start_cursor: cursor,
+          page_size: 100,
+        });
 
-    return null;
+        for (const page of response.results as any[]) {
+          const candidateName = this.normalizeProfileName(this.extractTitle(page));
+          if (candidateName === requestedName) {
+            const pageId = page.id;
+            this.profilePageIdCache.set(requestedName, { pageId, expiresAt: Date.now() + this.PROFILE_CACHE_TTL });
+            this.profileMissingWarnUntil.delete(requestedName);
+            return pageId;
+          }
+        }
+
+        cursor = response.has_more ? response.next_cursor ?? undefined : undefined;
+      } while (cursor);
+
+      this.profilePageIdCache.set(requestedName, {
+        pageId: null,
+        expiresAt: Date.now() + this.PROFILE_NEGATIVE_CACHE_TTL,
+      });
+      return null;
+    })().finally(() => {
+      this.profilePageIdLookupInFlight.delete(requestedName);
+    });
+
+    this.profilePageIdLookupInFlight.set(requestedName, lookupPromise);
+    return lookupPromise;
   }
 
   private async buildBrewProperties(brew: BrewData): Promise<Record<string, any>> {
@@ -456,10 +479,26 @@ export class NotionClient {
     if (profilePageId) {
       properties.Profile = { relation: [{ id: profilePageId }] };
     } else if (brew.profileName) {
-      console.warn(`No Profiles DB match found for profile name "${brew.profileName}"`);
+      this.warnMissingProfileNameLookup(brew.profileName);
     }
 
     return properties;
+  }
+
+  private warnMissingProfileNameLookup(profileName: string): void {
+    const normalizedName = this.normalizeProfileName(profileName);
+    if (!normalizedName) {
+      return;
+    }
+
+    const now = Date.now();
+    const warnUntil = this.profileMissingWarnUntil.get(normalizedName) ?? 0;
+    if (now < warnUntil) {
+      return;
+    }
+
+    this.profileMissingWarnUntil.set(normalizedName, now + this.PROFILE_MISSING_WARN_TTL);
+    console.warn(`No Profiles DB match found for profile name "${profileName}"`);
   }
 
   normalizeProfileName(name: string): string {
@@ -527,6 +566,7 @@ export class NotionClient {
           pageId: record.pageId,
           expiresAt: cacheExpiry,
         });
+        this.profileMissingWarnUntil.delete(record.normalizedName);
       }
     }
 
