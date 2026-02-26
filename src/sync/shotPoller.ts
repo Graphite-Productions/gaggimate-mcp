@@ -249,6 +249,7 @@ export class ShotPoller {
       if (candidateShots.length === 0) {
         return;
       }
+      const newestCandidateId = numId(candidateShots[candidateShots.length - 1]);
 
       if (newShots.length > 0) {
         console.log(`Found ${newShots.length} new shot(s) to sync`);
@@ -272,8 +273,14 @@ export class ShotPoller {
           // can read as 0 (i.e. "complete") if the device initialises the header before
           // any samples have been flushed.
           if (isNewShot && shotListItem.incomplete) {
-            console.log(`Shot ${shotListItem.id}: still recording, waiting for next poll`);
-            break;
+            if (numId(shotListItem) === newestCandidateId) {
+              console.log(`Shot ${shotListItem.id}: still recording, waiting for next poll`);
+              break;
+            }
+            // If a non-newest shot stays incomplete forever (e.g. aborted write), don't
+            // block newer completed shots behind it.
+            console.warn(`Shot ${shotListItem.id}: stale incomplete index entry, skipping`);
+            continue;
           }
 
           // Fetch shot data and check for existing Notion brew in parallel —
@@ -291,8 +298,12 @@ export class ShotPoller {
           // Secondary guard: catch file-level truncation even if the index flag has
           // not yet updated (rare, but possible with concurrent writes).
           if (isNewShot && shotData.incomplete) {
-            console.log(`Shot ${shotListItem.id}: file incomplete, waiting for next poll before syncing`);
-            break;
+            if (numId(shotListItem) === newestCandidateId) {
+              console.log(`Shot ${shotListItem.id}: file incomplete, waiting for next poll before syncing`);
+              break;
+            }
+            console.warn(`Shot ${shotListItem.id}: stale incomplete shot file, skipping`);
+            continue;
           }
 
           // Transform to AI-friendly format (full_curve for Shot JSON)

@@ -128,6 +128,56 @@ describe("ShotPoller", () => {
     }
   });
 
+  it("skips stale incomplete shots and still syncs newer completed shots", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "shot-poller-test-"));
+
+    const gaggimate = {
+      fetchShotHistory: vi.fn().mockResolvedValue([
+        { id: "6", incomplete: false },
+        { id: "5", incomplete: true },
+      ]),
+      fetchShot: vi.fn().mockResolvedValue({ ...createMockShotData(), id: "6", incomplete: false }),
+      fetchProfiles: vi.fn().mockResolvedValue([{ label: "Device Profile", id: "profile-1" }]),
+      uploadBrewChart: vi.fn(),
+    };
+
+    const notion = {
+      findBrewByShotId: vi.fn().mockResolvedValue(null),
+      hasProfileByName: vi.fn().mockResolvedValue(true),
+      normalizeProfileName: vi.fn().mockImplementation((name: string) => name.trim().toLowerCase()),
+      createDraftProfile: vi.fn(),
+      uploadProfileImage: vi.fn(),
+      createBrew: vi.fn().mockResolvedValue("brew-page-6"),
+      updateBrewFromData: vi.fn(),
+      brewHasProfileImage: vi.fn().mockResolvedValue(true),
+      imageUploadDisabled: null,
+      uploadBrewChart: vi.fn().mockResolvedValue(true),
+    };
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const poller = new ShotPoller(gaggimate as any, notion as any, {
+        intervalMs: 1000,
+        dataDir,
+        recentShotLookbackCount: 5,
+        brewTitleTimeZone: "America/Los_Angeles",
+        repairIntervalMs: -1,
+      });
+
+      (poller as any).state.lastSyncedShotId = "4";
+      await (poller as any).poll();
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("stale incomplete index entry"));
+      expect(gaggimate.fetchShot).toHaveBeenCalledWith("6");
+      expect(notion.createBrew).toHaveBeenCalledTimes(1);
+      expect((poller as any).state.lastSyncedShotId).toBe("6");
+    } finally {
+      warnSpy.mockRestore();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("repairs stale brews with empty JSON and missing chart image by re-syncing both", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "shot-poller-test-"));
 
